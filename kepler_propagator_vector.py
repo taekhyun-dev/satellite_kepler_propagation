@@ -1,25 +1,7 @@
 import numpy as np
 from PyAstronomy import pyasl
 
-def kepler_solver(M, e, tol=1e-8, max_iter=100):
-    """
-    평균 anomaly M과 이심률 e를 입력받아 eccentric anomaly E를 계산하는 함수.
-    뉴턴-랩슨(Newton-Raphson) 방법을 사용합니다.
-    """
-    if e < 0.8:
-        E = M
-    else:
-        E = np.pi
-
-    for _ in range(max_iter):
-        f = E - e * np.sin(E) - M
-        f_prime = 1 - e * np.cos(E)
-        E_new = E - f / f_prime
-        if np.abs(E_new - E) < tol:
-            return E_new
-        E = E_new
-
-    raise RuntimeError("Kepler solver did not converge")
+from kepler_utils import kepler_solver
 
 def kepler_to_state(a, e, inc, RAAN, arg, M, mu):
     """

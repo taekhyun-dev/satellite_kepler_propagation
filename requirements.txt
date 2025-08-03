@@ -1,0 +1,6 @@
+numpy
+matplotlib
+PyAstronomy
+sgp4
+skyfield
+pandas
