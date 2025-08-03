@@ -1,0 +1,26 @@
+Ignore all CSV files (communication windows, elevation data, propagation outputs, etc.)
+
+**/*.csv
+
+Ignore Python cache files and folders
+
+pycache/
+*/pycache/
+*.py[cod]
+
+Ignore constellation TLE if regenerated
+
+constellation.tle
+
+Ignore plot/image outputs if any
+
+**/*.png
+
+Node modules (if any)
+
+node_modules/
+
+VSCode workspace settings
+
+.vscode/
+
