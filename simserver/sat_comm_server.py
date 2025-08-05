@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import asyncio
 import os
+import json
 
 # ==================== 시뮬레이션 상태 변수 ====================
 satellites = {}           # sat_id -> EarthSatellite 객체
@@ -32,15 +33,10 @@ raw_iot_clusters = {
 }
 
 iot_clusters = {
-    "Abisko": Topos(latitude_degrees= 68.35, longitude_degrees= 18.79, elevation_m=420),
-    "Boreal": Topos(latitude_degrees= 55.50, longitude_degrees= 105.00, elevation_m=450),
-    "Taiga": Topos(latitude_degrees= 58.00, longitude_degrees= 99.00, elevation_m=300),
-    "Patagonia": Topos(latitude_degrees= 51.00, longitude_degrees= 73.00, elevation_m=500),
-    "Amazon_Forest": Topos(latitude_degrees= -3.47, longitude_degrees= -62.37, elevation_m=100),  # 아마존 열대우림
-    "Great_Barrier": Topos(latitude_degrees= -18.29, longitude_degrees= 147.77, elevation_m=0),   # 그레이트 배리어 리프
-    "Mediterranean": Topos(latitude_degrees= 37.98, longitude_degrees= 23.73, elevation_m=170),    # 지중해 연안
-    "California": Topos(latitude_degrees= 36.78, longitude_degrees= -119.42, elevation_m=150),
+    name: Topos(latitude_degrees=cfg["latitude"], longitude_degrees=cfg["longitude"], elevation_m=cfg["elevation_m"])
+    for name, cfg in raw_iot_clusters.items()
 }
+
 current_observer_name = "Berlin"
 observer = observer_locations[current_observer_name]
 ts = load.timescale()
@@ -50,6 +46,10 @@ sim_speed = 20.0  # 20배속 (0.05초에 1초 시뮬레이션)
 sim_paused = False  # 시뮬레이션 일시정지 여부
 auto_resume_delay_sec = 0  # 자동 재개 지연 시간 (초)
 current_sat_positions = {}
+
+def get_current_time_utc():
+    return ts.utc(sim_time.year, sim_time.month, sim_time.day,
+                  sim_time.hour, sim_time.minute, sim_time.second)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -72,7 +72,7 @@ async def initialize_simulation():
 
     tle_path = "../constellation.tle"
     if not os.path.exists(tle_path):
-        raise FileNotFoundError("TLE 파일이 존재하지 않습니다: constellation.tle")
+        raise FileNotFoundError(f"TLE 파일이 존재하지 않습니다: {tle_path}")
 
     with open(tle_path, "r") as f:
         lines = [line.strip() for line in f.readlines()]
@@ -83,8 +83,7 @@ async def initialize_simulation():
             satellites[sat_id] = satellite
             
     # 초기 위치 계산 추가
-    t = ts.utc(sim_time.year, sim_time.month, sim_time.day,
-               sim_time.hour, sim_time.minute, sim_time.second)
+    t = get_current_time_utc()
     for sat_id, satellite in satellites.items():
         subpoint = satellite.at(t).subpoint()
         current_sat_positions[sat_id] = {
@@ -99,8 +98,7 @@ async def simulation_loop():
     global sim_time, current_sat_positions
     while True:
         if not sim_paused:
-            t = ts.utc(sim_time.year, sim_time.month, sim_time.day,
-                    sim_time.hour, sim_time.minute, sim_time.second)
+            t = get_current_time_utc()
             current_sat_positions = {}
             for sat_id, satellite in satellites.items():
                 difference = satellite - observer
@@ -147,6 +145,7 @@ def dashboard():
         <a href="/visibility_schedules/lists">📅 위성별 관측 가능 시간대 목록 보기</a>
         <a href="/iot_clusters"> 📡 IoT 클러스터별 위치 보기</a>
         <a href="/iot_visibility"> 🌐 IoT 클러스터별 통신 가능 위성 보기</a>
+        <a href="/comm_targets/lists">🚀 위성 통신 대상 확인</a>
     </body>
     </html>
     """
@@ -159,7 +158,7 @@ def gs_visibility():
     """
     gs_sections = []
     for name, gs in observer_locations.items():
-        t = ts.utc(sim_time.year, sim_time.month, sim_time.day, sim_time.hour, sim_time.minute, sim_time.second)
+        t = get_current_time_utc()
         rows = []
         for sid, sat in satellites.items():
             difference = sat - gs
@@ -256,7 +255,7 @@ def orbit_paths(sat_id: int = Query(...)):
         </style>
     </head>
     <body>
-        <p><a href="/sat_paths">← Back to All Satellite Orbit Paths</a></p>
+        <p><a href="/orbit_paths/lists">← Back to All Satellite Orbit Paths</a></p>
         <h1>🛰 SAT{sat_id} Orbit Path</h1>
         <table>
             <tr><th>Offset</th><th>Latitude</th><th>Longitude</th></tr>
@@ -273,6 +272,12 @@ def map_path():
     """
     t0 = sim_time
     options = ''.join(f'<option value="{sid}">SAT{sid}</option>' for sid in sorted(satellites))
+    
+    obs_data_json = json.dumps({
+        name: {"lat": gs.latitude.degrees, "lon": gs.longitude.degrees}
+        for name, gs in observer_locations.items()
+    })
+    iot_data_json = json.dumps(raw_iot_clusters)
     return f"""
     <html>
     <head>
@@ -282,6 +287,18 @@ def map_path():
         <style>
             #map {{ height: 90vh; }}
             html, body {{ margin: 0; padding: 0; }}
+            .coverage-circle {{ fill-opacity:0.5; stroke-width:0; }}
+            .leaflet-tooltip.no-box {{
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                padding: 0;
+                font-weight: bold;
+            }}
+            /* also hide the little arrow bit */
+            .leaflet-tooltip.no-box::before {{
+                display: none;
+            }}
         </style>
     </head>
     <body>
@@ -301,11 +318,49 @@ def map_path():
                 inertia: false
             }});
             L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
+
+            const observers = {obs_data_json};
+            const iotClusters = {iot_data_json};
+
             var circles = [];
             var pathLines = [];
             var currentMarker = null;
             var currentLabel = null;
             var markerInterval = null;
+
+            var coverCircles = [];
+
+            // 4) 커버리지(원의 반경) 그리기
+            function drawCoverage() {{
+                // 지상국: 반경 100km
+                for (let [name, loc] of Object.entries(observers)) {{
+                    let coverCircle = L.circle([loc.lat, loc.lon], {{
+                                        radius: 100000,
+                                        color: 'green', fillColor: 'green',
+                                        className: 'coverage-circle'
+                                    }}).addTo(map);
+                    coverCircle.bindTooltip(name, {{
+                        permanent: true,
+                        direction: 'center',
+                        className: 'no-box'
+                    }});
+                    coverCircles.push(coverCircle);
+                }}
+                // IoT 클러스터: 반경 50km
+                for (let [name, loc] of Object.entries(iotClusters)) {{
+                    let coverCircle = L.circle([loc.latitude, loc.longitude], {{
+                                        radius: 50000,
+                                        color: 'orange', fillColor: 'orange',
+                                        className: 'coverage-circle'
+                                    }}).addTo(map);
+                    coverCircle.bindTooltip(name, {{
+                        permanent: true,
+                        direction: 'center',
+                        className: 'no-box'
+                    }});
+                    coverCircles.push(coverCircle);
+                }}
+            }}
 
             async function drawTrajectory(sat_id) {{
                 circles.forEach(c => map.removeLayer(c));
@@ -315,6 +370,8 @@ def map_path():
                 if (currentMarker) map.removeLayer(currentMarker);
                 if (currentLabel) map.removeLayer(currentLabel);
                 if (markerInterval) clearInterval(markerInterval);
+
+                drawCoverage();
 
                 let resp = await fetch(`/api/trajectory?sat_id=${{sat_id}}`);
                 let satData = await resp.json();
@@ -515,7 +572,7 @@ def iot_visibility():
     """
     iot_sections = []
     for name, iot in iot_clusters.items():
-        t = ts.utc(sim_time.year, sim_time.month, sim_time.day, sim_time.hour, sim_time.minute, sim_time.second)
+        t = get_current_time_utc();
         rows = []
         for sid, sat in satellites.items():
             difference = sat - iot
@@ -550,6 +607,67 @@ def iot_visibility():
         <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
         <hr>
         {''.join(iot_sections)}
+    </body>
+    </html>
+    """
+
+@app.get("/comm_targets/lists", response_class=HTMLResponse, tags=["PAGE"])  
+def comm_targets_list():
+    """
+    위성 ID 목록을 보여주고 각 위성의 통신 대상을 상세 페이지로 연결하는 리스트 페이지
+    """
+    links = [f'<li><a href="/comm_targets?sat_id={sid}">SAT{sid} Targets</a></li>' for sid in sorted(satellites)]
+    return f"""
+    <html>
+    <head>
+        <title>Comm Targets List</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            ul {{ list-style-type: none; padding: 0; }}
+            li {{ margin-bottom: 5px; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>🚀 Satellite Comm Targets</h1>
+        <ul>
+            {''.join(links)}
+        </ul>
+    </body>
+    </html>
+    """
+
+@app.get("/comm_targets", response_class=HTMLResponse, tags=["PAGE"])  
+def comm_targets_detail(sat_id: int = Query(..., description="위성 ID")):
+    """
+    특정 위성의 현재 통신 가능한 지상국과 IoT 클러스터를 HTML 테이블로 보여주는 상세 페이지
+    """
+    if sat_id not in satellites:
+        return HTMLResponse(f"<p style='color:red;'>Error: sat_id {sat_id} not found</p>", status_code=404)
+    data = api_comm_targets(sat_id)
+    # 테이블 생성
+    rows_ground = ''.join(f"<tr><td>{gs}</td></tr>" for gs in data['visible_ground_stations']) or '<tr><td>None</td></tr>'
+    rows_iot    = ''.join(f"<tr><td>{ci}</td></tr>" for ci in data['visible_iot_clusters']) or '<tr><td>None</td></tr>'
+    return f"""
+    <html>
+    <head>
+        <title>Comm Targets for SAT{{sat_id}}</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            table {{ border-collapse: collapse; width: 40%; margin-top: 1em; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/comm_targets/lists">← Back to Comm Targets List</a></p>
+        <h1>📡 Comm Targets for SAT{sat_id}</h1>
+        <p><b>Sim Time:</b> {data['sim_time']}</p>
+        <h2>Visible Ground Stations</h2>
+        <table><tr><th>Station</th></tr>{rows_ground}</table>
+        <h2>Visible IoT Clusters</h2>
+        <table><tr><th>Cluster</th></tr>{rows_iot}</table>
     </body>
     </html>
     """
@@ -650,6 +768,32 @@ def get_position(sat_id: int = Query(...)):
     if sat_id not in current_sat_positions:
         return {"error": f"Position for SAT{sat_id} not available"}
     return current_sat_positions[sat_id]
+
+@app.get("/api/comm_targets", tags=["API"] )
+def api_comm_targets(sat_id: int = Query(..., description="위성 ID")):
+    """
+    주어진 위성 ID에 대해 현재 통신 가능한 지상국과 IoT 클러스터를 반환합니다.
+    """
+    if sat_id not in satellites:
+        return {"error": f"sat_id {sat_id} not found"}
+    t = get_current_time_utc()
+    sat = satellites[sat_id]
+    visible_ground = []
+    for name, gs in observer_locations.items():
+        alt, _, _ = (sat - gs).at(t).altaz()
+        if alt.degrees >= threshold_deg:
+            visible_ground.append(name)
+    visible_iot = []
+    for name, cluster in iot_clusters.items():
+        alt, _, _ = (sat - cluster).at(t).altaz()
+        if alt.degrees >= threshold_deg:
+            visible_iot.append(name)
+    return {
+        "sim_time": sim_time.isoformat(),
+        "sat_id": sat_id,
+        "visible_ground_stations": visible_ground,
+        "visible_iot_clusters": visible_iot
+    }
 
 @app.get("/api/gs/check_comm", tags=["API/GS"])
 def get_gs_check_comm(sat_id: int = Query(...)):
