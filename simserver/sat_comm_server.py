@@ -42,10 +42,12 @@ observer = observer_locations[current_observer_name]
 ts = load.timescale()
 sim_time = datetime(2025, 3, 30, 0, 0, 0)  # 시뮬레이션 시작 시간
 threshold_deg = 40
-sim_speed = 20.0  # 20배속 (0.05초에 1초 시뮬레이션)
+# sim_speed = 20.0  # 20배속 (0.05초에 1초 시뮬레이션)
 sim_paused = False  # 시뮬레이션 일시정지 여부
 auto_resume_delay_sec = 0  # 자동 재개 지연 시간 (초)
 current_sat_positions = {}
+sim_delta_sec = 1       # 한 스텝당 시뮬레이션 시간 증가량 (초단위)
+real_interval_sec = 0.05 # 한 스텝당 실제 대기시간 (초단위)
 
 def get_current_time_utc():
     return ts.utc(sim_time.year, sim_time.month, sim_time.day,
@@ -111,8 +113,8 @@ async def simulation_loop():
                     "lon": subpoint.longitude.degrees
                 }
 
-            sim_time += timedelta(seconds=1)      # 시뮬레이션 시간 증가
-        await asyncio.sleep(1.0 / sim_speed)             # 빠르게 진행 (20배속)
+            sim_time += timedelta(seconds=sim_delta_sec)      # 시뮬레이션 시간 증가
+        await asyncio.sleep(real_interval_sec)             # 빠르게 진행
 
 # ==================== 대시보드 HTML UI ====================
 @app.get("/dashboard", response_class=HTMLResponse, tags=["PAGE"])
@@ -137,7 +139,26 @@ def dashboard():
         <h1>🛰️🛰 Satellite Communication Dashboard</h1>
         <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
         <p><b>Status:</b> {paused_status}</p>
-        <p><b>Speed:</b> {sim_speed}x</p>
+        <p><b>Step:</b> Δt={sim_delta_sec}s, Interval={real_interval_sec}s</p>
+        <div class="control-form">
+            <label>Δt(초): <input id="delta" type="number" step="any" value="{sim_delta_sec}" /></label>
+            <label>간격(초): <input id="interval" type="number" step="any" value="{real_interval_sec}" /></label>
+            <button onclick="setStep()">적용</button>
+        </div>
+        <script>
+        async function setStep() {{
+            const d = document.getElementById('delta').value;
+            const i = document.getElementById('interval').value;
+            const res = await fetch(`/api/set_step?delta_sec=${{d}}&interval_sec=${{i}}`, {{ method: 'PUT' }});
+            const data = await res.json();
+            if (!data.error) {{
+                alert(`설정 완료: Δt=${{data.sim_delta_sec}}, Interval=${{data.real_interval_sec}}`);
+                window.location.reload();
+            }} else {{
+                alert(`오류: ${{data.error}}`);
+            }}
+        }}
+        </script>
         <hr>
         <a href="/gs_visibility">🛰️ GS별 통신 가능 위성 보기</a>
         <a href="/orbit_paths/lists">🛰 위성별 궤적 경로 보기</a>
@@ -156,6 +177,9 @@ def gs_visibility():
     """
     지상국별로 관측 가능한 위성 목록을 HTML로 반환하는 페이지
     """
+
+    paused_status = "Paused" if sim_paused else "Running"
+
     gs_sections = []
     for name, gs in observer_locations.items():
         t = get_current_time_utc()
@@ -191,6 +215,8 @@ def gs_visibility():
         <p><a href="/dashboard">← Back to Dashboard</a></p>
         <h1>🛰️ GS-wise Visible Satellites</h1>
         <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
+        <p><b>Status:</b> {paused_status}</p>
+        <p><b>Step:</b> Δt={sim_delta_sec}s, Interval={real_interval_sec}s</p>
         <hr>
         {''.join(gs_sections)}
     </body>
@@ -305,6 +331,7 @@ def map_path():
         <p><a href=\"/dashboard\">← Back to Dashboard</a></p>
         <h1>🗺 Satellite Map Path</h1>
         <div id="sim-time"></div>
+        <div id="sim-step" style="margin-bottom: 1em;"></div>
         <label for=\"sat_id\">Choose a satellite:</label>
         <select id=\"sat_id\" onchange=\"drawTrajectory(this.value)\">{options}</select>
         <div id=\"map\"></div>
@@ -391,7 +418,8 @@ def map_path():
                     let data = await live.json();
                     let simResp = await fetch(`/api/sim_time`);
                     let simData = await simResp.json();
-                    document.getElementById('sim-time').innerText = `현재 시뮬레이션 시간: ${{simData.sim_time}}`;
+                    document.getElementById('sim-time').innerHTML = "<p><b>Sim Time:</b> {sim_time.isoformat()}</p>";
+                    document.getElementById('sim-step').innerHTML = "<p><b>Step:</b> Δt={sim_delta_sec}s, Interval={real_interval_sec}s</p>";
 
                     if (data.lat !== undefined && data.lon !== undefined) {{
                         if (currentMarker) map.removeLayer(currentMarker);
@@ -450,6 +478,9 @@ def visibility_schedules(sat_id: int = Query(...)):
     """
     특정 위성의 관측 가능 시간대를 HTML로 반환하는 페이지
     """
+
+    paused_status = "Paused" if sim_paused else "Running"
+
     if sat_id not in satellites:
         return HTMLResponse(f"<p>Error: sat_id {sat_id} not found</p>", status_code=404)
 
@@ -497,6 +528,8 @@ def visibility_schedules(sat_id: int = Query(...)):
         <p><a href="/visibility_schedules/lists">← Back to Satellite Visibility Schedule List</a></p>
         <h1>📅 Visibility Schedule for SAT{sat_id}</h1>
         <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
+        <p><b>Status:</b> {paused_status}</p>
+        <p><b>Step:</b> Δt={sim_delta_sec}s, Interval={real_interval_sec}s</p>
         {''.join(sections)}
     </body>
     </html>
@@ -570,6 +603,9 @@ def iot_visibility():
     """
     IoT 클러스터에서 관측 가능한 위성 목록을 HTML로 반환하는 페이지
     """
+
+    paused_status = "Paused" if sim_paused else "Running"
+
     iot_sections = []
     for name, iot in iot_clusters.items():
         t = get_current_time_utc();
@@ -605,6 +641,8 @@ def iot_visibility():
         <p><a href="/dashboard">← Back to Dashboard</a></p>
         <h1>🌐 IOT-wise Visible Satellites</h1>
         <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
+        <p><b>Status:</b> {paused_status}</p>
+        <p><b>Step:</b> Δt={sim_delta_sec}s, Interval={real_interval_sec}s</p>
         <hr>
         {''.join(iot_sections)}
     </body>
@@ -643,6 +681,9 @@ def comm_targets_detail(sat_id: int = Query(..., description="위성 ID")):
     """
     특정 위성의 현재 통신 가능한 지상국과 IoT 클러스터를 HTML 테이블로 보여주는 상세 페이지
     """
+
+    paused_status = "Paused" if sim_paused else "Running"
+
     if sat_id not in satellites:
         return HTMLResponse(f"<p style='color:red;'>Error: sat_id {sat_id} not found</p>", status_code=404)
     data = api_comm_targets(sat_id)
@@ -663,7 +704,9 @@ def comm_targets_detail(sat_id: int = Query(..., description="위성 ID")):
     <body>
         <p><a href="/comm_targets/lists">← Back to Comm Targets List</a></p>
         <h1>📡 Comm Targets for SAT{sat_id}</h1>
-        <p><b>Sim Time:</b> {data['sim_time']}</p>
+        <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
+        <p><b>Status:</b> {paused_status}</p>
+        <p><b>Step:</b> Δt={sim_delta_sec}s, Interval={real_interval_sec}s</p>
         <h2>Visible Ground Stations</h2>
         <table><tr><th>Station</th></tr>{rows_ground}</table>
         <h2>Visible IoT Clusters</h2>
@@ -701,16 +744,31 @@ def set_sim_time(year: int, month: int, day: int, hour: int = 0, minute: int = 0
     except Exception as e:
         return {"error": str(e)}
 
-@app.put("/api/set_speed", tags=["API"])
-def set_sim_speed(speed: float):
+@app.put("/api/set_step", tags=["API"])
+def set_step(delta_sec: float = Query(...), interval_sec: float = Query(...)):
     """
-    시뮬레이션 속도(배속)를 설정하는 API
+    시뮬레이션 델타 시간 및 루프 간 실제 대기시간을 설정
     """
-    global sim_speed
-    if speed <= 0:
-        return {"error": "speed must be positive"}
-    sim_speed = speed
-    return {"status": "updated", "sim_speed": sim_speed}
+    global sim_delta_sec, real_interval_sec
+    if delta_sec <= 0 or interval_sec < 0:
+        return {"error": "delta_sec은 양수, interval_sec은 0 이상이어야 합니다."}
+    sim_delta_sec = delta_sec
+    real_interval_sec = interval_sec
+    return {
+        "sim_delta_sec": sim_delta_sec,
+        "real_interval_sec": real_interval_sec
+    }
+
+# @app.put("/api/set_speed", tags=["API"])
+# def set_sim_speed(speed: float):
+#     """
+#     시뮬레이션 속도(배속)를 설정하는 API
+#     """
+#     global sim_speed
+#     if speed <= 0:
+#         return {"error": "speed must be positive"}
+#     sim_speed = speed
+#     return {"status": "updated", "sim_speed": sim_speed}
 
 @app.post("/api/pause", tags=["API"])
 def pause_simulation():
