@@ -13,6 +13,7 @@ import json
 # ==================== 시뮬레이션 상태 변수 ====================
 satellites = {}           # sat_id -> EarthSatellite 객체
 sat_comm_status = {}      # sat_id -> 현재 통신 가능 여부
+trajectory_caches = {}  # sat_id -> 궤적 경로 리스트
 observer_locations = {    # observer 이름 -> Topos 객체
     "Berlin": Topos(latitude_degrees=52.52, longitude_degrees=13.41, elevation_m=34),
     "Houston": Topos(latitude_degrees=29.76, longitude_degrees=-95.37, elevation_m=30),
@@ -97,7 +98,9 @@ async def initialize_simulation():
 
 # ==================== 시뮬레이션 루프 ====================
 async def simulation_loop():
-    global sim_time, current_sat_positions
+    global sim_time, current_sat_positions, trajectory_caches
+
+
     while True:
         if not sim_paused:
             t = get_current_time_utc()
@@ -115,6 +118,34 @@ async def simulation_loop():
 
             sim_time += timedelta(seconds=sim_delta_sec)      # 시뮬레이션 시간 증가
         await asyncio.sleep(real_interval_sec)             # 빠르게 진행
+
+async def trajectory_updater():
+    global trajectory_caches, sim_time
+    # 시뮬레이션 시간 기준으로 얼마나 앞까지 미리 계산할지
+    lookahead_sec = 7200  
+    # 한 번에 계산할 시간 간격 (예: sim_delta_sec 와 같거나 더 작게)
+    update_step = sim_delta_sec  
+
+    while True:
+        base_time = sim_time
+        # base_time 부터 lookahead_sec 까지, update_step 간격으로 한 스텝만 계산
+        future = base_time + timedelta(seconds=update_step)
+        ts_future = ts.utc(future.year, future.month, future.day,
+                           future.hour, future.minute, future.second)
+
+        for sat_id, sat in satellites.items():
+            sub = sat.at(ts_future).subpoint()
+            trajectory_caches[sat_id].append({
+                "time": future.isoformat(),
+                "lat": sub.latitude.degrees,
+                "lon": sub.longitude.degrees
+            })
+            # 캐시가 너무 커지면 오래된 항목은 잘라냅니다 (예시: 7200/update_step 개 이상)
+            if len(trajectory_caches[sat_id]) > lookahead_sec / update_step:
+                trajectory_caches[sat_id].pop(0)
+
+        # 실제 루프 대기시간은 real_interval_sec
+        await asyncio.sleep(real_interval_sec)
 
 # ==================== 대시보드 HTML UI ====================
 @app.get("/dashboard", response_class=HTMLResponse, tags=["PAGE"])
@@ -686,7 +717,7 @@ def comm_targets_detail(sat_id: int = Query(..., description="위성 ID")):
 
     if sat_id not in satellites:
         return HTMLResponse(f"<p style='color:red;'>Error: sat_id {sat_id} not found</p>", status_code=404)
-    data = api_comm_targets(sat_id)
+    data = get_comm_targets(sat_id)
     # 테이블 생성
     rows_ground = ''.join(f"<tr><td>{gs}</td></tr>" for gs in data['visible_ground_stations']) or '<tr><td>None</td></tr>'
     rows_iot    = ''.join(f"<tr><td>{ci}</td></tr>" for ci in data['visible_iot_clusters']) or '<tr><td>None</td></tr>'
@@ -828,7 +859,7 @@ def get_position(sat_id: int = Query(...)):
     return current_sat_positions[sat_id]
 
 @app.get("/api/comm_targets", tags=["API"] )
-def api_comm_targets(sat_id: int = Query(..., description="위성 ID")):
+def get_comm_targets(sat_id: int = Query(..., description="위성 ID")):
     """
     주어진 위성 ID에 대해 현재 통신 가능한 지상국과 IoT 클러스터를 반환합니다.
     """
@@ -852,31 +883,6 @@ def api_comm_targets(sat_id: int = Query(..., description="위성 ID")):
         "visible_ground_stations": visible_ground,
         "visible_iot_clusters": visible_iot
     }
-
-@app.get("/api/gs/check_comm", tags=["API/GS"])
-def get_gs_check_comm(sat_id: int = Query(...)):
-    """
-    위성 통신 가능 여부를 확인하는 API
-    """
-    available = bool(sat_comm_status.get(sat_id, False))
-    return {
-        "sat_id": sat_id,
-        "observer": "Berlin",
-        "sim_time": sim_time.isoformat(),
-        "available": available
-    }
-
-@app.put("/api/gs/observer", tags=["API/GS"])
-def set_observer(name: str = Query(...)):
-    """
-    지상국 관측 위치를 설정하는 API
-    """
-    global observer, current_observer_name
-    if name not in observer_locations:
-        return {"error": f"observer '{name}' is not supported"}
-    observer = observer_locations[name]
-    current_observer_name = name
-    return {"observer": name, "status": "updated"}
 
 @app.get("/api/gs/visibility", tags=["API/GS"])
 def get_gs_visibility():
@@ -929,10 +935,98 @@ def get_visibility_schedule(sat_id: int = Query(...)):
         results[name] = visible_periods
     return {"sim_time": sim_time.isoformat(), "sat_id": sat_id, "schedule": results}
 
-@app.get("/api/gs/all_visible", tags=["API/GS"])
+@app.get("/api/gs/next_comm", tags=["API/GS"])
+def get_next_comm_for_sat(sat_id: int = Query(..., description="위성 ID")):
+    """
+    주어진 sat_id 위성이 다음에 통신 가능한 지상국과 시간(시뮬레이션 시간)을 반환합니다.
+    """
+    if sat_id not in satellites:
+        return {"error": f"sat_id {sat_id} not found"}
+
+    sat = satellites[sat_id]
+    # 현재 시뮬레이션 시간 기준
+    t0 = sim_time
+    # 최대 탐색 범위: 24시간
+    horizon = 86400  
+    step = sim_delta_sec or 1
+
+    for offset in range(step, horizon + step, step):
+        t = ts.utc(*(t0 + timedelta(seconds=offset)).timetuple()[:6])
+        # 하나라도 통신 가능하면 해당 시점을 반환
+        for name, gs in observer_locations.items():
+            alt, _, _ = (sat - gs).at(t).altaz()
+            if alt.degrees >= threshold_deg:
+                next_time = t0 + timedelta(seconds=offset)
+                return {
+                    "sat_id": sat_id,
+                    "ground_station": name,
+                    "next_comm_time": next_time.isoformat()
+                }
+    return {"sat_id": sat_id, "next_comm_time": None, "message": "다음 24시간 내 통신 창 없음"}
+
+@app.get("/api/gs/next_comm_all", tags=["API/GS"])
+def get_next_comm_all():
+    """
+    모든 위성에 대해 다음 통신 가능 시간(지상국, 시뮬레이션 시간)을 반환합니다.
+    """
+    result = {}
+    t0 = sim_time
+    horizon = 86400
+    step = sim_delta_sec or 1
+
+    for sat_id, sat in satellites.items():
+        next_time = None
+        next_gs = None
+        # 각 위성마다 24시간 내 첫 통신 창 탐색
+        for offset in range(step, horizon + step, step):
+            t = ts.utc(*(t0 + timedelta(seconds=offset)).timetuple()[:6])
+            for name, gs in observer_locations.items():
+                alt, _, _ = (sat - gs).at(t).altaz()
+                if alt.degrees >= threshold_deg:
+                    next_time = t0 + timedelta(seconds=offset)
+                    next_gs = name
+                    break
+            if next_time:
+                break
+        result[sat_id] = {
+            "ground_station": next_gs,
+            "next_comm_time": next_time.isoformat() if next_time else None
+        }
+
+    return {
+        "sim_time": sim_time.isoformat(),
+        "next_comm": result
+    }
+
+@app.put("/api/observer", tags=["API/Observer"])
+def set_observer(name: str = Query(...)):
+    """
+    지상국 관측 위치를 설정하는 API
+    """
+    global observer, current_observer_name
+    if name not in observer_locations:
+        return {"error": f"observer '{name}' is not supported"}
+    observer = observer_locations[name]
+    current_observer_name = name
+    return {"observer": name, "status": "updated"}
+
+@app.get("/api/observer/check_comm", tags=["API/Observer"])
+def get_observer_check_comm(sat_id: int = Query(...)):
+    """
+    위성 통신 가능 여부를 확인하는 API
+    """
+    available = bool(sat_comm_status.get(sat_id, False))
+    return {
+        "sat_id": sat_id,
+        "observer": "Berlin",
+        "sim_time": sim_time.isoformat(),
+        "available": available
+    }
+
+@app.get("/api/observer/all_visible", tags=["API/Observer"])
 def get_all_visible():
     """
-    현재 시뮬레이션 시간에 지상국에서 관측 가능한 모든 위성의 ID를 반환하는 API
+    현재 시뮬레이션 시간에 지상국(observer)에서 관측 가능한 모든 위성의 ID를 반환하는 API
     """
     visible_sats = [sat_id for sat_id, available in sat_comm_status.items() if bool(available)]
     return {
@@ -941,10 +1035,10 @@ def get_all_visible():
         "visible_sat_ids": visible_sats
     }
 
-@app.get("/api/gs/visible_count", tags=["API/GS"])
+@app.get("/api/observer/visible_count", tags=["API/Observer"])
 def get_visible_count():
     """
-    현재 시뮬레이션 시간에 지상국에서 관측 가능한 위성의 개수를 반환하는 API
+    현재 시뮬레이션 시간에 지상국(observer)에서 관측 가능한 위성의 개수를 반환하는 API
     """
     count = sum(1 for available in sat_comm_status.values() if bool(available))
     return {
@@ -953,7 +1047,7 @@ def get_visible_count():
         "visible_count": count
     }
 
-@app.get("/api/gs/elevation", tags=["API/GS"])
+@app.get("/api/observer/elevation", tags=["API/Observer"])
 def get_elevation(sat_id: int = Query(...)):
     """
     특정 위성의 현재 시뮬레이션 시간에 대한 지상국과의 고도를 반환하는 API
@@ -971,6 +1065,68 @@ def get_elevation(sat_id: int = Query(...)):
         "observer": current_observer_name,
         "sim_time": sim_time.isoformat(),
         "elevation_deg": alt.degrees
+    }
+
+@app.get("/api/observer/next_comm", tags=["API/Observer"])
+def get_next_comm_with_observer(sat_id: int = Query(..., description="위성 ID")):
+    """
+    주어진 sat_id 위성이 현재 observer 와 다음에 통신 가능한 시간을 반환합니다.
+    """
+    if sat_id not in satellites:
+        return {"error": f"sat_id {sat_id} not found"}
+    sat = satellites[sat_id]
+
+    t0 = sim_time
+    horizon = 86400               # 최대 24시간 검색
+    step = sim_delta_sec or 1     # 시뮬레이션 델타
+
+    for offset in range(step, horizon + step, step):
+        future_time = t0 + timedelta(seconds=offset)
+        t = ts.utc(future_time.year, future_time.month, future_time.day,
+                   future_time.hour, future_time.minute, future_time.second)
+        alt, _, _ = (sat - observer).at(t).altaz()
+        if alt.degrees >= threshold_deg:
+            return {
+                "sat_id": sat_id,
+                "observer": current_observer_name,
+                "next_comm_time": future_time.isoformat()
+            }
+
+    return {
+        "sat_id": sat_id,
+        "observer": current_observer_name,
+        "next_comm_time": None,
+        "message": "다음 24시간 내 통신 창 없음"
+    }
+
+@app.get("/api/observer/next_comm_all", tags=["API/Observer"])
+def get_next_comm_all_with_observer():
+    """
+    모든 위성에 대해 현재 observer 와의 다음 통신 가능한 시간을 반환합니다.
+    """
+    t0 = sim_time
+    horizon = 86400
+    step = sim_delta_sec or 1
+
+    result = {}
+    for sat_id, sat in satellites.items():
+        next_time = None
+        for offset in range(step, horizon + step, step):
+            future_time = t0 + timedelta(seconds=offset)
+            t = ts.utc(future_time.year, future_time.month, future_time.day,
+                       future_time.hour, future_time.minute, future_time.second)
+            alt, _, _ = (sat - observer).at(t).altaz()
+            if alt.degrees >= threshold_deg:
+                next_time = future_time.isoformat()
+                break
+        result[sat_id] = {
+            "next_comm_time": next_time
+        }
+
+    return {
+        "observer": current_observer_name,
+        "sim_time": sim_time.isoformat(),
+        "next_comm": result
     }
 
 @app.get("/api/iot_clusters/position", tags=["API/IoT"])
