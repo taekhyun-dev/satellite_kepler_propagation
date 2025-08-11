@@ -24,3 +24,14 @@ VSCode workspace settings
 
 .vscode/
 
+simserver/ckpt/*
+!simserver/ckpt/.gitkeep
+
+simserver/data/cifar_data/**
+!simserver/data/cifar_data/.gitkeep
+**/cifar-10-batches-py/**
+**/cifar-10-python.tar.gz
+
+*.ckpt
+*.pth
+*.pt
