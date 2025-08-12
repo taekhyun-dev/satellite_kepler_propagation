@@ -6,6 +6,7 @@ import json
 import asyncio
 import threading
 import logging
+import copy
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import asynccontextmanager
@@ -35,6 +36,12 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent
 CKPT_DIR = BASE_DIR / "ckpt"
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---- 글로벌 모델 집계 상태 ----
+GLOBAL_MODEL_LOCK = threading.Lock()
+GLOBAL_MODEL_STATE = None       # latest state_dict (CPU 텐서)
+GLOBAL_MODEL_VERSION = -1       # -1이면 아직 초기화 전
+AGG_ALPHA = float(os.getenv("FL_AGG_ALPHA", "0.1"))  # (1-α)G + αL 의 α
 
 # -------------------- Logger --------------------
 logger = logging.getLogger("simserver")
@@ -106,7 +113,7 @@ if NUM_GPUS == 0 and _has_torch and torch.cuda.is_available():
     NUM_GPUS = torch.cuda.device_count()
 
 # GPU당 동시 세션 수(기본 1)
-SESSIONS_PER_GPU = int(os.getenv("SESSIONS_PER_GPU", "6"))
+SESSIONS_PER_GPU = int(os.getenv("SESSIONS_PER_GPU", "1"))
 
 # 총 동시 학습 작업 수
 MAX_TRAIN_WORKERS = int(os.getenv(
@@ -291,6 +298,46 @@ def _on_become_visible(sat_id: int):
     else:
         _upload_and_aggregate_async(sat_id, st.last_ckpt_path)
 
+def _new_model_skeleton():
+    """학습과 동일한 아키텍처로 빈 모델 생성."""
+    import torch
+    from torchvision.models import mobilenet_v3_small
+    num_classes = int(os.getenv("FL_NUM_CLASSES", "10"))
+    model = mobilenet_v3_small(num_classes=num_classes)
+    return model
+
+def _find_latest_global_ckpt():
+    """ckpt/global_v*.ckpt 중 가장 최신 버전을 찾아 반환."""
+    import re
+    paths = sorted(CKPT_DIR.glob("global_v*.ckpt"))
+    best = None
+    best_ver = -1
+    for p in paths:
+        m = re.search(r"global_v(\d+)\.ckpt$", p.name)
+        if m:
+            v = int(m.group(1))
+            if v > best_ver:
+                best_ver, best = v, p
+    return best_ver, best
+
+def _init_global_model():
+    """서버 기동 시 글로벌 가중치 로드/초기화."""
+    global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
+    import torch
+    with GLOBAL_MODEL_LOCK:
+        ver, path = _find_latest_global_ckpt()
+        if path and path.exists():
+            GLOBAL_MODEL_STATE = torch.load(path, map_location="cpu")
+            GLOBAL_MODEL_VERSION = ver
+            print(f"[AGG] Loaded global model v{GLOBAL_MODEL_VERSION} from {path}")
+        else:
+            # 없으면 새로 생성해서 v0 저장
+            model = _new_model_skeleton()
+            GLOBAL_MODEL_STATE = model.state_dict()
+            GLOBAL_MODEL_VERSION = 0
+            init_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}.ckpt"
+            torch.save(GLOBAL_MODEL_STATE, init_path)
+            print(f"[AGG] Initialized new global model at {init_path}")
 
 # === 로컬 학습 함수: do_local_training ===
 def do_local_training(
@@ -392,6 +439,62 @@ def do_local_training(
 
     return last_ckpt or save_ckpt(-1)
 
+def get_initial_model_state(sat_id: int):
+    """로컬 학습 시작 시 초기 글로벌 가중치 제공 훅."""
+    with GLOBAL_MODEL_LOCK:
+        # deepcopy 로 안전 복제
+        return copy.deepcopy(GLOBAL_MODEL_STATE)
+
+def aggregate_params(global_state: dict, local_state: dict, alpha: float) -> dict:
+    """
+    PySyft 없이 사용하는 단순 가중합 집계:
+      new = (1-alpha)*global + alpha*local
+    키/shape 불일치 항목은 글로벌 값 유지.
+    """
+    import torch
+    new_params = {}
+    for k, g_t in global_state.items():
+        l_t = local_state.get(k, None)
+        if l_t is None or g_t.shape != l_t.shape:
+            # 키가 없거나 shape 다르면 글로벌 유지
+            new_params[k] = g_t.clone()
+            continue
+        # 모두 CPU 텐서로 계산
+        g = g_t.detach().to("cpu")
+        l = l_t.detach().to("cpu")
+        new_params[k] = (1.0 - alpha) * g + alpha * l
+    return new_params
+
+def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
+    """
+    위성에서 올라온 로컬 ckpt(=state_dict)를 글로벌에 합치고,
+    새로운 글로벌 ckpt 경로를 반환.
+    """
+    import torch, datetime as _dt
+    if not ckpt_path or not os.path.exists(ckpt_path):
+        raise FileNotFoundError(f"ckpt not found: {ckpt_path}")
+
+    local_state = torch.load(ckpt_path, map_location="cpu")
+
+    with GLOBAL_MODEL_LOCK:
+        global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
+        # 집계
+        GLOBAL_MODEL_STATE = aggregate_params(GLOBAL_MODEL_STATE, local_state, AGG_ALPHA)
+        GLOBAL_MODEL_VERSION += 1
+        # 저장
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}_{ts}.ckpt"
+        torch.save(GLOBAL_MODEL_STATE, out_path)
+        # 버전 넘버만 있는 심플 파일도 하나 남겨두고 싶다면(옵션):
+        link_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}.ckpt"
+        try:
+            # 동일 이름 있으면 덮어씀
+            torch.save(GLOBAL_MODEL_STATE, link_path)
+        except Exception:
+            pass
+        print(f"[AGG] SAT{sat_id} merged -> global v{GLOBAL_MODEL_VERSION} ({out_path.name})")
+        return str(out_path)
+
 
 # ==================== FastAPI 앱/수명주기 ====================
 @asynccontextmanager
@@ -461,6 +564,8 @@ async def initialize_simulation():
     except Exception as e:
         logger.error(f"[DATA] CIFAR init failed: {e}")
 
+    _init_global_model()
+
     for gid in _build_worker_gpu_list():
         asyncio.create_task(_train_worker(gid))
 
@@ -509,6 +614,9 @@ async def simulation_loop():
 # ==================== 대시보드 / 페이지 ====================
 @app.get("/dashboard", response_class=HTMLResponse, tags=["PAGE"])
 def dashboard():
+    """
+    대시보드 HTML 페이지
+    """
     paused_status = "Paused" if sim_paused else "Running"
     return f"""
     <html>
@@ -560,6 +668,10 @@ def dashboard():
 
 @app.get("/gs_visibility", response_class=HTMLResponse, tags=["PAGE"])
 def gs_visibility():
+    """
+    지상국별로 관측 가능한 위성 목록을 HTML로 반환하는 페이지
+    """
+
     paused_status = "Paused" if sim_paused else "Running"
     gs_sections = []
     t_ts = get_current_time_utc()
@@ -606,6 +718,9 @@ def gs_visibility():
 
 @app.get("/orbit_paths/lists", response_class=HTMLResponse, tags=["PAGE"])
 def sat_paths():
+    """
+    위성별 궤적 경로 링크 목록을 HTML로 반환하는 페이지
+    """
     links = [f'<li><a href="/orbit_paths?sat_id={sid}">SAT{sid} Path</a></li>' for sid in sorted(satellites)]
     return f"""
     <html>
@@ -630,6 +745,9 @@ def sat_paths():
 
 @app.get("/orbit_paths", response_class=HTMLResponse, tags=["PAGE"])
 def orbit_paths(sat_id: int = Query(...)):
+    """
+    특정 위성의 궤적 경로를 HTML로 반환하는 페이지
+    """
     if sat_id not in satellites:
         return HTMLResponse(f"<p>Error: sat_id {sat_id} not found</p>", status_code=404)
 
@@ -669,6 +787,9 @@ def orbit_paths(sat_id: int = Query(...)):
 
 @app.get("/map_path", response_class=HTMLResponse, tags=["PAGE"])
 def map_path():
+    """
+    지도 기반 위성 경로를 표시하는 HTML 페이지
+    """
     options = ''.join(f'<option value="{sid}">SAT{sid}</option>' for sid in sorted(satellites))
     obs_data_json = json.dumps({name: {"lat": gs.latitude.degrees, "lon": gs.longitude.degrees}
                                 for name, gs in observer_locations.items()})
@@ -790,10 +911,265 @@ def map_path():
     </html>
     """
 
+@app.get("/visibility_schedules/lists", response_class=HTMLResponse, tags=["PAGE"])
+def get_list_visibility_schedules():
+    """
+    위성별 관측 가능 시간대 링크 목록을 HTML로 반환하는 페이지
+    """
+    links = [f'<li><a href="/visibility_schedules?sat_id={sid}">SAT{sid} Schedule</a></li>' for sid in sorted(satellites)]
+    return f"""
+    <html>
+    <head>
+        <title>Visibility Schedule List</title>
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            ul {{ list-style-type: none; padding: 0; }}
+            li {{ margin-bottom: 10px; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>📅 All Satellite Visibility Schedules</h1>
+        <ul>
+            {''.join(links)}
+        </ul>
+    </body>
+    </html>
+    """
+
+@app.get("/visibility_schedules", response_class=HTMLResponse, tags=["PAGE"])
+def visibility_schedules(sat_id: int = Query(...)):
+    """
+    특정 위성의 관측 가능 시간대를 HTML로 반환하는 페이지
+    """
+    if sat_id not in satellites:
+        return HTMLResponse(f"<p>Error: sat_id {sat_id} not found</p>", status_code=404)
+
+    satellite = satellites[sat_id]
+    results = []
+    for name, gs in observer_locations.items():
+        visible_periods = []
+        visible = False
+        start = None
+        for offset in range(0, 7200, 30):
+            future = sim_time + timedelta(seconds=offset)
+            t = ts.utc(future.year, future.month, future.day, future.hour, future.minute, future.second)
+            difference = satellite - gs
+            topocentric = difference.at(t)
+            alt, _, _ = topocentric.altaz()
+            if alt.degrees >= threshold_deg:
+                if not visible:
+                    start = future
+                    visible = True
+            else:
+                if visible:
+                    visible_periods.append((start, future))
+                    visible = False
+        if visible and start:
+            visible_periods.append((start, future))
+        results.append((name, visible_periods))
+
+    sections = []
+    for name, periods in results:
+        rows = ''.join(f"<tr><td>{start.strftime('%H:%M:%S')}</td><td>{end.strftime('%H:%M:%S')}</td></tr>" for start, end in periods)
+        sections.append(f"<h2>{name}</h2><table><tr><th>Start</th><th>End</th></tr>{rows}</table>")
+
+    return f"""
+    <html>
+    <head>
+        <title>Visibility Schedule</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            table {{ border-collapse: collapse; width: 60%; margin-bottom: 2em; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/visibility_schedules/lists">← Back to Satellite Visibility Schedule List</a></p>
+        <h1>📅 Visibility Schedule for SAT{sat_id}</h1>
+        <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
+        {''.join(sections)}
+    </body>
+    </html>
+    """
+
+@app.get("/iot_clusters", response_class=HTMLResponse, tags=["PAGE"])
+def iot_clusters_ui():
+    """
+    IoT 클러스터 위치를 HTML로 반환하는 페이지
+    """
+    rows = []
+    for name, loc in raw_iot_clusters.items():
+        # console.log(f"Adding IoT cluster: {name} at {loc['latitude']}, {loc['longitude']}")
+        rows.append(f"<tr><td>{name}</td><td>{loc['latitude']:.2f}</td><td>{loc['longitude']:.2f}</td></tr>")
+    return f"""
+    <html>
+    <head>
+        <title>IoT Clusters</title>
+        <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" />
+        <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            table {{ border-collapse: collapse; width: 60%; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+            #map {{ height: 500px; margin-top: 30px; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>📡 IoT Cluster Locations</h1>
+        <table>
+            <tr><th>Name</th><th>Latitude</th><th>Longitude</th></tr>
+            {''.join(rows)}
+        </table>
+        <hr/>
+        <div id=\"map\"></div>
+        <script>
+            var map = L.map('map', {{
+                center: [0, 0],
+                zoom: 2,
+                worldCopyJump: false,
+                maxBounds: [[-85, -180], [85, 180]],
+                maxBoundsViscosity: 1.0,
+                inertia: false
+            }});
+            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                maxZoom: 18,
+                attribution: '© OpenStreetMap contributors'
+            }}).addTo(map);
+
+            const clusters = {raw_iot_clusters};
+            console.log("IoT clusters:", clusters);
+            for (let [name, loc] of Object.entries(clusters)) {{
+                const lat = loc.latitude;
+                const lon = loc.longitude;
+                L.circleMarker([lat, lon],{{radius: 5, color: 'blue'}}).addTo(map);
+                const marker = L.circleMarker([lat, lon], {{ radius: 5, color: 'blue' }}).addTo(map);
+                marker.bindTooltip(name, {{
+                    permanent: true,
+                    direction: 'top',
+                    className: 'iot-tooltip'
+                }});
+            }}
+        </script>
+    </body>
+    </html>
+    """
+
+@app.get("/iot_visibility", response_class=HTMLResponse, tags=["PAGE"])
+def iot_visibility():
+    """
+    IoT 클러스터에서 관측 가능한 위성 목록을 HTML로 반환하는 페이지
+    """
+    iot_sections = []
+    for name, iot in iot_clusters.items():
+        t = ts.utc(sim_time.year, sim_time.month, sim_time.day, sim_time.hour, sim_time.minute, sim_time.second)
+        rows = []
+        for sid, sat in satellites.items():
+            difference = sat - iot
+            topocentric = difference.at(t)
+            alt, az, dist = topocentric.altaz()
+            if alt.degrees >= threshold_deg:
+                rows.append(f'<tr><td>{sid}</td><td>{alt.degrees:.2f}°</td></tr>')
+        table_html = f"""
+        <h2>{name}</h2>
+        <table>
+            <tr><th>Sat ID</th><th>Elevation</th></tr>
+            {''.join(rows)}
+        </table>
+        """
+        iot_sections.append(table_html)
+
+    return f"""
+    <html>
+    <head>
+        <title>IOT Visibility</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; background: #f2f2f2; margin: 2em; }}
+            h2 {{ margin-top: 2em; }}
+            table {{ border-collapse: collapse; width: 60%; margin-bottom: 2em; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>🌐 IOT-wise Visible Satellites</h1>
+        <p><b>Sim Time:</b> {sim_time.isoformat()}</p>
+        <hr>
+        {''.join(iot_sections)}
+    </body>
+    </html>
+    """
+
+@app.get("/comm_targets/lists", response_class=HTMLResponse, tags=["PAGE"])  
+def comm_targets_list():
+    """
+    위성 ID 목록을 보여주고 각 위성의 통신 대상을 상세 페이지로 연결하는 리스트 페이지
+    """
+    links = [f'<li><a href="/comm_targets?sat_id={sid}">SAT{sid} Targets</a></li>' for sid in sorted(satellites)]
+    return f"""
+    <html>
+    <head>
+        <title>Comm Targets List</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            ul {{ list-style-type: none; padding: 0; }}
+            li {{ margin-bottom: 5px; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>🚀 Satellite Comm Targets</h1>
+        <ul>
+            {''.join(links)}
+        </ul>
+    </body>
+    </html>
+    """
+
+@app.get("/comm_targets", response_class=HTMLResponse, tags=["PAGE"])  
+def comm_targets_detail(sat_id: int = Query(..., description="위성 ID")):
+    """
+    특정 위성의 현재 통신 가능한 지상국과 IoT 클러스터를 HTML 테이블로 보여주는 상세 페이지
+    """
+    if sat_id not in satellites:
+        return HTMLResponse(f"<p style='color:red;'>Error: sat_id {sat_id} not found</p>", status_code=404)
+    data = get_comm_targets(sat_id)
+    # 테이블 생성
+    rows_ground = ''.join(f"<tr><td>{gs}</td></tr>" for gs in data['visible_ground_stations']) or '<tr><td>None</td></tr>'
+    rows_iot    = ''.join(f"<tr><td>{ci}</td></tr>" for ci in data['visible_iot_clusters']) or '<tr><td>None</td></tr>'
+    return f"""
+    <html>
+    <head>
+        <title>Comm Targets for SAT{{sat_id}}</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            table {{ border-collapse: collapse; width: 40%; margin-top: 1em; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/comm_targets/lists">← Back to Comm Targets List</a></p>
+        <h1>📡 Comm Targets for SAT{sat_id}</h1>
+        <p><b>Sim Time:</b> {data['sim_time']}</p>
+        <h2>Visible Ground Stations</h2>
+        <table><tr><th>Station</th></tr>{rows_ground}</table>
+        <h2>Visible IoT Clusters</h2>
+        <table><tr><th>Cluster</th></tr>{rows_iot}</table>
+    </body>
+    </html>
+    """
 
 # ==================== API ====================
 @app.post("/api/reset_time", tags=["API"])
 def reset_sim_time():
+    """
+    시뮬레이션 시간을 초기화하는 API
+    """
     global sim_time
     sim_time = datetime(2025, 3, 30, 0, 0, 0)
     return {"status": "reset", "sim_time": sim_time.isoformat()}
@@ -801,11 +1177,17 @@ def reset_sim_time():
 
 @app.get("/api/sim_time", tags=["API"])
 def get_sim_time_api():
+    """
+    현재 시뮬레이션 시간을 반환하는 API
+    """
     return {"sim_time": sim_time.isoformat()}
 
 
 @app.put("/api/sim_time", tags=["API"])
 def set_sim_time(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0):
+    """
+    시뮬레이션 시간을 설정하는 API
+    """
     global sim_time
     try:
         sim_time = datetime(year, month, day, hour, minute, second)
@@ -816,6 +1198,9 @@ def set_sim_time(year: int, month: int, day: int, hour: int = 0, minute: int = 0
 
 @app.put("/api/set_step", tags=["API"])
 def set_step(delta_sec: float = Query(...), interval_sec: float = Query(...)):
+    """
+    시뮬레이션 델타 시간 및 루프 간 실제 대기시간을 설정
+    """
     global sim_delta_sec, real_interval_sec
     if delta_sec <= 0 or interval_sec < 0:
         return {"error": "delta_sec은 양수, interval_sec은 0 이상이어야 합니다."}
@@ -826,6 +1211,9 @@ def set_step(delta_sec: float = Query(...), interval_sec: float = Query(...)):
 
 @app.post("/api/pause", tags=["API"])
 def pause_simulation():
+    """
+    시뮬레이션을 일시정지하는 API
+    """
     global sim_paused
     sim_paused = True
     return {"status": "paused"}
@@ -833,6 +1221,9 @@ def pause_simulation():
 
 @app.post("/api/resume", tags=["API"])
 def resume_simulation():
+    """
+    시뮬레이션을 재개하는 API
+    """
     global sim_paused
     sim_paused = False
     return {"status": "resumed"}
@@ -840,6 +1231,9 @@ def resume_simulation():
 
 @app.get("/api/trajectory", tags=["API"])
 def get_trajectory(sat_id: int = Query(...)):
+    """
+    특정 위성의 궤적 경로를 반환하는 API
+    """
     if sat_id not in satellites:
         return {"error": f"sat_id {sat_id} not found"}
     satellite = satellites[sat_id]
@@ -867,6 +1261,9 @@ def get_trajectory(sat_id: int = Query(...)):
 
 @app.get("/api/position", tags=["API"])
 def get_position(sat_id: int = Query(...)):
+    """
+    특정 위성의 현재 위치를 반환하는 API
+    """
     if sat_id not in current_sat_positions:
         return {"error": f"Position for SAT{sat_id} not available"}
     return current_sat_positions[sat_id]
@@ -874,6 +1271,9 @@ def get_position(sat_id: int = Query(...)):
 
 @app.get("/api/comm_targets", tags=["API"])
 def get_comm_targets(sat_id: int = Query(..., description="위성 ID")):
+    """
+    주어진 위성 ID에 대해 현재 통신 가능한 지상국과 IoT 클러스터를 반환하는 API
+    """
     if sat_id not in satellites:
         return {"error": f"sat_id {sat_id} not found"}
     t_ts = get_current_time_utc()
@@ -892,6 +1292,9 @@ def get_comm_targets(sat_id: int = Query(..., description="위성 ID")):
 
 @app.get("/api/gs/visibility", tags=["API/GS"])
 def get_gs_visibility():
+    """
+    현재 시뮬레이션 시간에 각 지상국에서 관측 가능한 위성 목록을 반환하는 API
+    """
     result = {}
     t_ts = get_current_time_utc()
     for name, gs in observer_locations.items():
@@ -906,6 +1309,9 @@ def get_gs_visibility():
 
 @app.get("/api/gs/visibility_schedule", tags=["API/GS"])
 def get_visibility_schedule(sat_id: int = Query(...)):
+    """
+    특정 위성의 관측 가능 시간대를 반환하는 API
+    """
     if sat_id not in satellites:
         return {"error": f"sat_id {sat_id} not found"}
     satellite = satellites[sat_id]
@@ -936,6 +1342,9 @@ def get_visibility_schedule(sat_id: int = Query(...)):
 
 @app.get("/api/gs/next_comm", tags=["API/GS"])
 def get_next_comm_for_sat(sat_id: int = Query(..., description="위성 ID")):
+    """
+    주어진 sat_id 위성이 다음에 통신 가능한 지상국과 시간(시뮬레이션 시간)을 반환하는 API
+    """
     if sat_id not in satellites:
         return {"error": f"sat_id {sat_id} not found"}
     sat = satellites[sat_id]
@@ -955,6 +1364,9 @@ def get_next_comm_for_sat(sat_id: int = Query(..., description="위성 ID")):
 
 @app.get("/api/gs/next_comm_all", tags=["API/GS"])
 def get_next_comm_all():
+    """
+    모든 위성에 대해 다음 통신 가능 시간(지상국, 시뮬레이션 시간)을 반환하는 API
+    """
     t0 = sim_time
     horizon = 86400
     step = max(1, int(sim_delta_sec))
@@ -981,6 +1393,9 @@ def get_next_comm_all():
 
 @app.put("/api/observer", tags=["API/Observer"])
 def set_observer(name: str = Query(...)):
+    """
+    지상국 관측 위치를 설정하는 API
+    """
     global observer, current_observer_name
     if name not in observer_locations:
         return {"error": f"observer '{name}' is not supported"}
@@ -991,24 +1406,36 @@ def set_observer(name: str = Query(...)):
 
 @app.get("/api/observer/check_comm", tags=["API/Observer"])
 def get_observer_check_comm(sat_id: int = Query(...)):
+    """
+    위성 통신 가능 여부를 확인하는 API
+    """
     available = bool(sat_comm_status.get(sat_id, False))
     return {"sat_id": sat_id, "observer": current_observer_name, "sim_time": sim_time.isoformat(), "available": available}
 
 
 @app.get("/api/observer/all_visible", tags=["API/Observer"])
 def get_all_visible():
+    """
+    현재 시뮬레이션 시간에 지상국(observer)에서 관측 가능한 모든 위성의 ID를 반환하는 API
+    """
     visible_sats = [sat_id for sat_id, available in sat_comm_status.items() if bool(available)]
     return {"observer": current_observer_name, "sim_time": sim_time.isoformat(), "visible_sat_ids": visible_sats}
 
 
 @app.get("/api/observer/visible_count", tags=["API/Observer"])
 def get_visible_count():
+    """
+    현재 시뮬레이션 시간에 지상국(observer)에서 관측 가능한 위성의 개수를 반환하는 API
+    """
     count = sum(1 for available in sat_comm_status.values() if bool(available))
     return {"observer": current_observer_name, "sim_time": sim_time.isoformat(), "visible_count": count}
 
 
 @app.get("/api/observer/elevation", tags=["API/Observer"])
 def get_elevation(sat_id: int = Query(...)):
+    """
+    특정 위성의 현재 시뮬레이션 시간에 대한 지상국과의 고도를 반환하는 API
+    """
     satellite = satellites.get(sat_id)
     if satellite is None:
         return {"error": f"sat_id {sat_id} not found"}
@@ -1018,6 +1445,9 @@ def get_elevation(sat_id: int = Query(...)):
 
 @app.get("/api/observer/next_comm", tags=["API/Observer"])
 def get_next_comm_with_observer(sat_id: int = Query(..., description="위성 ID")):
+    """
+    주어진 sat_id 위성이 현재 observer와 다음에 통신 가능한 시간을 반환하는 API
+    """
     if sat_id not in satellites:
         return {"error": f"sat_id {sat_id} not found"}
     sat = satellites[sat_id]
@@ -1034,6 +1464,9 @@ def get_next_comm_with_observer(sat_id: int = Query(..., description="위성 ID"
 
 @app.get("/api/observer/next_comm_all", tags=["API/Observer"])
 def get_next_comm_all_with_observer():
+    """
+    모든 위성에 대해 현재 observer 와의 다음 통신 가능한 시간을 반환하는 API
+    """
     t0 = sim_time
     horizon = 86400
     step = max(1, int(sim_delta_sec))
@@ -1053,6 +1486,9 @@ def get_next_comm_all_with_observer():
 
 @app.get("/api/iot_clusters/position", tags=["API/IoT"])
 def get_iot_clusters_position():
+    """
+    IoT 클러스터의 위치 정보를 반환하는 API
+    """
     # Topos는 직렬화 불가 → lat/lon만 반환
     clusters = {name: {"lat": t.latitude.degrees, "lon": t.longitude.degrees, "elev_m": raw_iot_clusters[name]["elevation_m"]}
                 for name, t in iot_clusters.items()}
@@ -1061,6 +1497,9 @@ def get_iot_clusters_position():
 
 @app.get("/api/iot_clusters/visibility_schedule", tags=["API/IoT"])
 def get_iot_clusters_visibility(sat_id: int = Query(...)):
+    """
+    특정 위성이 IoT 클러스터에서 관측 가능한지 여부와 관측 가능 시간대를 반환하는 API
+    """
     if sat_id not in satellites:
         return {"error": f"sat_id {sat_id} not found"}
     satellite = satellites[sat_id]
@@ -1092,6 +1531,11 @@ def get_iot_clusters_visible(
     sat_id: Optional[int] = Query(None, description="위성 ID"),
     iot_name: Optional[str] = Query(None, description="IoT 클러스터 이름")
 ):
+    """
+    특정 IoT 클러스터에서 관측 가능한지 여부를 반환하는 API\n
+    - sat_id만 지정 → 해당 위성과 통신 가능한 IoT 클러스터 목록 반환
+    - iot_name만 지정 → 해당 IoT 클러스터와 통신 가능한 위성 ID 목록 반환
+    """
     if (sat_id is None) == (iot_name is None):
         return {"error": "neither sat_id or iot_name not found"}
 
@@ -1116,6 +1560,9 @@ def get_iot_clusters_visible(
 
 @app.get("/api/iot_clusters/visible_count", tags=["API/IoT"])
 def get_iot_clusters_visible_count(iot_name: str = Query(...)):
+    """
+    특정 IoT 클러스터에서 관측 가능한 위성의 개수를 반환하는 API
+    """
     if iot_name not in iot_clusters:
         return {"error": f"iot cluster '{iot_name}' not found"}
     cluster = iot_clusters[iot_name]
