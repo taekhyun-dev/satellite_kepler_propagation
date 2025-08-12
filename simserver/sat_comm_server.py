@@ -7,6 +7,7 @@ import asyncio
 import threading
 import logging
 import copy
+
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, Future
 from contextlib import asynccontextmanager
@@ -113,7 +114,7 @@ if NUM_GPUS == 0 and _has_torch and torch.cuda.is_available():
     NUM_GPUS = torch.cuda.device_count()
 
 # GPU당 동시 세션 수(기본 1)
-SESSIONS_PER_GPU = int(os.getenv("SESSIONS_PER_GPU", "1"))
+SESSIONS_PER_GPU = int(os.getenv("SESSIONS_PER_GPU", "6"))
 
 # 총 동시 학습 작업 수
 MAX_TRAIN_WORKERS = int(os.getenv(
@@ -298,28 +299,6 @@ def _on_become_visible(sat_id: int):
     else:
         _upload_and_aggregate_async(sat_id, st.last_ckpt_path)
 
-def _new_model_skeleton():
-    """학습과 동일한 아키텍처로 빈 모델 생성."""
-    import torch
-    from torchvision.models import mobilenet_v3_small
-    num_classes = int(os.getenv("FL_NUM_CLASSES", "10"))
-    model = mobilenet_v3_small(num_classes=num_classes)
-    return model
-
-def _find_latest_global_ckpt():
-    """ckpt/global_v*.ckpt 중 가장 최신 버전을 찾아 반환."""
-    import re
-    paths = sorted(CKPT_DIR.glob("global_v*.ckpt"))
-    best = None
-    best_ver = -1
-    for p in paths:
-        m = re.search(r"global_v(\d+)\.ckpt$", p.name)
-        if m:
-            v = int(m.group(1))
-            if v > best_ver:
-                best_ver, best = v, p
-    return best_ver, best
-
 def _init_global_model():
     """서버 기동 시 글로벌 가중치 로드/초기화."""
     global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
@@ -339,6 +318,27 @@ def _init_global_model():
             torch.save(GLOBAL_MODEL_STATE, init_path)
             print(f"[AGG] Initialized new global model at {init_path}")
 
+def _new_model_skeleton():
+    """학습과 동일한 아키텍처로 빈 모델 생성."""
+    from torchvision.models import mobilenet_v3_small
+    num_classes = int(os.getenv("FL_NUM_CLASSES", "10"))
+    model = mobilenet_v3_small(num_classes=num_classes)
+    return model
+
+def _find_latest_global_ckpt():
+    """ckpt/global_v*.ckpt 중 가장 최신 버전을 찾아 반환."""
+    import re
+    paths = sorted(CKPT_DIR.glob("global_v*.ckpt"))
+    best = None
+    best_ver = -1
+    for p in paths:
+        m = re.search(r"global_v(\d+)\.ckpt$", p.name)
+        if m:
+            v = int(m.group(1))
+            if v > best_ver:
+                best_ver, best = v, p
+    return best_ver, best
+
 # === 로컬 학습 함수: do_local_training ===
 def do_local_training(
     sat_id: int,
@@ -356,8 +356,6 @@ def do_local_training(
     - 데이터는 data.get_training_dataset(sat_id)에서 획득.
     - 글로벌 초기 가중치 훅(get_initial_model_state)이 있으면 적용.
     """
-    import tempfile
-    import datetime as _dt
     from torch.utils.data import DataLoader
     import torch
     import torch.nn as nn
@@ -447,11 +445,10 @@ def get_initial_model_state(sat_id: int):
 
 def aggregate_params(global_state: dict, local_state: dict, alpha: float) -> dict:
     """
-    PySyft 없이 사용하는 단순 가중합 집계:
+    단순 가중합 집계:
       new = (1-alpha)*global + alpha*local
     키/shape 불일치 항목은 글로벌 값 유지.
     """
-    import torch
     new_params = {}
     for k, g_t in global_state.items():
         l_t = local_state.get(k, None)
@@ -470,7 +467,8 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
     위성에서 올라온 로컬 ckpt(=state_dict)를 글로벌에 합치고,
     새로운 글로벌 ckpt 경로를 반환.
     """
-    import torch, datetime as _dt
+    import torch
+    import datetime as _dt
     if not ckpt_path or not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"ckpt not found: {ckpt_path}")
 
@@ -493,8 +491,7 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
         except Exception:
             pass
         print(f"[AGG] SAT{sat_id} merged -> global v{GLOBAL_MODEL_VERSION} ({out_path.name})")
-        return str(out_path)
-
+        return str(out_path) 
 
 # ==================== FastAPI 앱/수명주기 ====================
 @asynccontextmanager

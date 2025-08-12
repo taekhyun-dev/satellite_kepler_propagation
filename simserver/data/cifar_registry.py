@@ -4,15 +4,15 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 try:
     import torchvision
     from torchvision.datasets import CIFAR10
-except Exception as e:
+except Exception:
     torchvision, CIFAR10 = None, None
 
-from .config import CIFAR_ROOT, ASSIGNMENTS_DIR, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
+from .config import CIFAR_ROOT, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
 
 
 class CIFARSubsetDataset(Dataset):
