@@ -7,6 +7,9 @@ import asyncio
 import threading
 import logging
 import copy
+import sys
+import time, random
+import importlib
 
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -33,16 +36,15 @@ try:
 except Exception:
     _has_torch = False
 
-# 체크포인트 디렉토리: simserver/ckpt
-BASE_DIR = Path(__file__).resolve().parent
-CKPT_DIR = BASE_DIR / "ckpt"
-CKPT_DIR.mkdir(parents=True, exist_ok=True)
-
-# ---- 글로벌 모델 집계 상태 ----
-GLOBAL_MODEL_LOCK = threading.Lock()
-GLOBAL_MODEL_STATE = None       # latest state_dict (CPU 텐서)
-GLOBAL_MODEL_VERSION = -1       # -1이면 아직 초기화 전
-AGG_ALPHA = float(os.getenv("FL_AGG_ALPHA", "0.1"))  # (1-α)G + αL 의 α
+if _has_torch:
+    import torch.multiprocessing as mp
+    try:
+        # CUDA와 함께 fork는 위험. spawn을 강제하고 공유전략을 파일시스템으로.
+        if mp.get_start_method(allow_none=True) != "spawn":
+            mp.set_start_method("spawn", force=True)
+        torch.multiprocessing.set_sharing_strategy("file_system")
+    except RuntimeError:
+        pass
 
 # -------------------- Logger --------------------
 logger = logging.getLogger("simserver")
@@ -52,6 +54,48 @@ if not logger.handlers:
     h.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(h)
 
+def _log(msg: str):
+    logger.info(f"[FL] {msg}")
+
+# -------------------- 환경/경로 --------------------
+def _is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except Exception:
+        return False
+    
+# DataLoader workers: WSL 또는 reload 환경이면 0으로(멀티프로세싱 비활성화)
+DEFAULT_DL_WORKERS = 0 if _is_wsl() or os.getenv("UVICORN_RELOAD") else 2
+DL_WORKERS = int(os.getenv("FL_DATALOADER_WORKERS", str(DEFAULT_DL_WORKERS)))
+
+# 체크포인트 디렉토리: simserver/ckpt
+BASE_DIR = Path(__file__).resolve().parent
+CKPT_DIR = BASE_DIR / "ckpt"
+CKPT_DIR.mkdir(parents=True, exist_ok=True)
+
+# --- Metrics paths ---
+METRICS_DIR = BASE_DIR / "metrics"
+GLOBAL_METRICS_DIR = METRICS_DIR / "global"
+GLOBAL_METRICS_DIR.mkdir(parents=True, exist_ok=True)
+LOCAL_METRICS_DIR = METRICS_DIR / "local"
+LOCAL_METRICS_DIR.mkdir(parents=True, exist_ok=True)
+METRICS_DIR.mkdir(parents=True, exist_ok=True)
+
+try:
+    import pandas as _pd  # optional
+    _has_pandas = True
+except Exception:
+    _has_pandas = False
+    
+METRICS_LOCK = threading.Lock()  # 파일 append 동시성 보호
+
+# ---- 글로벌 모델 집계 상태 ----
+GLOBAL_MODEL_LOCK = threading.Lock()
+GLOBAL_MODEL_STATE = None       # latest state_dict (CPU 텐서)
+GLOBAL_MODEL_VERSION = -1       # -1이면 아직 초기화 전
+AGG_ALPHA = float(os.getenv("FL_AGG_ALPHA", "0.1"))  # (1-α)G + αL 의 α
+EVAL_EVERY_N = int(os.getenv("FL_EVAL_EVERY_N", "1"))  # 글로벌 v가 N배수일 때만 평가
+EVAL_BS = int(os.getenv("FL_EVAL_BS", "1024"))
 
 # ==================== 시뮬레이션 상태 변수 ====================
 satellites: Dict[int, EarthSatellite] = {}         # sat_id -> EarthSatellite
@@ -96,10 +140,8 @@ def to_ts(dt: datetime):
     """datetime -> skyfield ts.utc(...)"""
     return ts.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
 
-
 def get_current_time_utc():
     return to_ts(sim_time)
-
 
 def elevation_deg(sat: EarthSatellite, topox: Topos, t_ts):
     """위성-관측점 고도(deg) 계산."""
@@ -125,39 +167,9 @@ MAX_TRAIN_WORKERS = int(os.getenv(
 training_executor = ThreadPoolExecutor(max_workers=MAX_TRAIN_WORKERS)
 uploader_executor = ThreadPoolExecutor(max_workers=4)  # 업로드/집계는 짧게
 
-# GPU별 세마포어
-gpu_ids = list(range(NUM_GPUS)) if NUM_GPUS > 0 else [None]  # None = CPU fallback
-gpu_semaphores = {gid: threading.BoundedSemaphore(SESSIONS_PER_GPU)
-                  for gid in gpu_ids if gid is not None}
-_gpu_rr_idx = 0
-_gpu_rr_lock = threading.Lock()
-
 train_queue: "asyncio.Queue[int]" = asyncio.Queue(
     maxsize=int(os.getenv("FL_QUEUE_MAX", "1000"))
 )
-
-def _log(msg: str):
-    logger.info(f"[FL] {msg}")
-
-
-def try_pick_gpu_id_nonblocking():
-    """
-    빈 세션 있는 GPU만 즉시 할당. 없으면 (None, None)
-    """
-    global _gpu_rr_idx
-    if gpu_ids == [None]:
-        return None, None
-    with _gpu_rr_lock:
-        start = _gpu_rr_idx
-        n = len(gpu_ids)
-        for i in range(n):
-            gid = gpu_ids[(start + i) % n]
-            sem = gpu_semaphores[gid]
-            if sem.acquire(blocking=False):
-                _gpu_rr_idx = (start + i + 1) % n
-                return gid, sem
-    return None, None
-
 
 @dataclass
 class TrainState:
@@ -168,7 +180,6 @@ class TrainState:
     last_ckpt_path: Optional[str] = None
     round_idx: int = 0  # False→True마다 라운드 증가
     in_queue: bool = False
-
 
 train_states: Dict[int, TrainState] = {}
 
@@ -246,40 +257,6 @@ def _upload_and_aggregate_async(sat_id: int, ckpt_path: Optional[str]):
 
     uploader_executor.submit(_job)
 
-
-def _launch_training(sat_id: int):
-    """오프라인일 때 학습 시작(중복 방지, GPU 슬롯 없으면 다음 루프에서 재시도)."""
-    st = train_states[sat_id]
-    if st.running and st.future and not st.future.done():
-        return
-
-    gid, pre_acquired_sem = try_pick_gpu_id_nonblocking()
-    if gid is None and NUM_GPUS > 0:
-        _log(f"SAT{sat_id}: GPUs busy, will retry later")
-        return
-
-    st.stop_event = threading.Event()
-    st.gpu_id = gid
-    st.running = True
-
-    def _job():
-        _log(f"SAT{sat_id}: training START (gpu={st.gpu_id})")
-        ckpt = None
-        try:
-            if _has_torch and st.gpu_id is not None:
-                torch.cuda.set_device(st.gpu_id)
-            ckpt = do_local_training(sat_id=sat_id, stop_event=st.stop_event, gpu_id=st.gpu_id)
-        except Exception as e:
-            _log(f"SAT{sat_id}: training ERROR: {e}")
-        finally:
-            st.last_ckpt_path = ckpt
-            st.running = False
-            _log(f"SAT{sat_id}: training DONE, ckpt={ckpt}")
-            if pre_acquired_sem is not None:
-                pre_acquired_sem.release()
-
-    st.future = training_executor.submit(_job)
-
 def _on_become_visible(sat_id: int):
     st = train_states[sat_id]
     if st.running and st.future:
@@ -299,6 +276,144 @@ def _on_become_visible(sat_id: int):
     else:
         _upload_and_aggregate_async(sat_id, st.last_ckpt_path)
 
+# ---------- Metrics helpers ----------
+def _append_csv_row(path: Path, header: List[str], row: List[Any]):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new_file = not path.exists()
+    with METRICS_LOCK:
+        with path.open("a", encoding="utf-8") as f:
+            if new_file:
+                f.write(",".join(header) + "\n")
+            # 간단 CSV escape
+            def esc(x):
+                s = "" if x is None else str(x)
+                if ("," in s) or ("\"" in s):
+                    s = "\"" + s.replace("\"", "\"\"") + "\""
+                return s
+            f.write(",".join(esc(x) for x in row) + "\n")
+
+def _append_excel_row(xlsx_path: Path, header: List[str], row: List[Any], sheet: str = "metrics"):
+    if not _has_pandas:
+        return
+    xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+    import pandas as pd
+    try:
+        if xlsx_path.exists():
+            df = pd.read_excel(xlsx_path, sheet_name=sheet)
+        else:
+            df = pd.DataFrame(columns=header)
+        s = pd.Series(row, index=header)
+        df = pd.concat([df, s.to_frame().T], ignore_index=True)
+        with pd.ExcelWriter(xlsx_path, engine="openpyxl", mode="w") as w:
+            df.to_excel(w, sheet_name=sheet, index=False)
+    except Exception as e:
+        logger.warning(f"[METRICS] Excel write failed: {e}")
+
+def _log_local_metrics(sat_id: int, round_idx: int, epoch: int, loss: float, acc: float, n: int, ckpt_path: str):
+    ts = datetime.now().isoformat()
+    header = ["timestamp", "sat_id", "round", "epoch", "num_samples", "loss", "acc", "ckpt_path"]
+    row = [ts, sat_id, round_idx, epoch, n, f"{loss:.6f}", f"{acc:.2f}", ckpt_path]
+    csv_path = LOCAL_METRICS_DIR / f"sat{sat_id}.csv"
+    _append_csv_row(csv_path, header, row)
+    _append_excel_row(csv_path.with_suffix(".xlsx"), header, row, sheet="local")
+
+def _log_global_metrics(version: int, split: str, loss: float, acc: float, n: int, ckpt_path: str):
+    ts = datetime.now().isoformat()
+    header = ["timestamp", "version", "split", "num_samples", "loss", "acc", "ckpt_path"]
+    row = [ts, version, split, n, f"{loss:.6f}", f"{acc:.2f}", ckpt_path]
+
+    csv_path = GLOBAL_METRICS_DIR / f"global{version}.csv"
+    _append_csv_row(csv_path, header, row)
+    try:
+        _append_excel_row(csv_path.with_suffix(".xlsx"), header, row, sheet="global")
+    finally:
+        _log(f"[METRICS] global v{version} {split} saved -> {csv_path}")
+
+def _get_eval_dataset(split: str):
+    """
+    split in {"val","test"}.
+    1) DATA_REGISTRY.get_{split}_dataset() 시도
+    2) data 모듈 함수(get_validation_dataset / get_test_dataset) 시도
+    3) torchvision CIFAR-10(test) 폴백
+    """
+    # 1) registry method
+    meth_name = f"get_{'validation' if split=='val' else 'test'}_dataset"
+    if hasattr(DATA_REGISTRY, meth_name):
+        try:
+            ds = getattr(DATA_REGISTRY, meth_name)()
+            if ds is not None:
+                _log(f"[EVAL] using DATA_REGISTRY.{meth_name}()")
+                return ds
+        except Exception as e:
+            logger.warning(f"[EVAL] DATA_REGISTRY.{meth_name} failed: {e}")
+
+    # 2) data module fallbacks
+    try:
+        data_mod = importlib.import_module("data")
+        fn_name = "get_validation_dataset" if split == "val" else "get_test_dataset"
+        if hasattr(data_mod, fn_name):
+            ds = getattr(data_mod, fn_name)()
+            if ds is not None:
+                _log(f"[EVAL] using data.{fn_name}()")
+                return ds
+    except Exception as e:
+        logger.warning(f"[EVAL] data.{fn_name} failed: {e}")
+
+
+    # 3) torchvision CIFAR-10 test 폴백
+    try:
+        from torchvision.datasets import CIFAR10
+        from torchvision import transforms
+        tfm = transforms.Compose([transforms.ToTensor()])
+        ds = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
+        _log("[EVAL] using torchvision CIFAR10(test) fallback")
+        return ds
+    except Exception as e:
+        logger.warning(f"[EVAL] fallback CIFAR10 failed: {e}")
+
+    return None
+
+def _evaluate_state_dict(state_dict: dict, dataset, batch_size: int = 512, device: str = "cpu"):
+    """
+    state_dict를 주어진 dataset(TensorDataset 예상) 위에서 평가(loss, acc).
+    기본은 CPU에서 평가(안전).
+    """
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader
+    from torchvision.models import mobilenet_v3_small
+
+    model = mobilenet_v3_small(num_classes=int(os.getenv("FL_NUM_CLASSES", "10")))
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+    )
+    criterion = nn.CrossEntropyLoss(reduction="sum")  # 전체 합으로 모아서 마지막에 평균
+    total_loss, total_correct, total = 0.0, 0, 0
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)
+            logits = model(x)
+            loss = criterion(logits, y)
+            total_loss += float(loss.item())
+            _, pred = logits.max(1)
+            total_correct += int(pred.eq(y).sum().item())
+            total += y.size(0)
+
+    avg_loss = total_loss / max(1, total)
+    acc = 100.0 * total_correct / max(1, total)
+    return avg_loss, acc, total
+
+# -------------------- 글로벌 초기화/집계 --------------------
 def _init_global_model():
     """서버 기동 시 글로벌 가중치 로드/초기화."""
     global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
@@ -339,6 +454,70 @@ def _find_latest_global_ckpt():
                 best_ver, best = v, p
     return best_ver, best
 
+def aggregate_params(global_state: dict, local_state: dict, alpha: float) -> dict:
+    """
+    단순 가중합 집계:
+      new = (1-alpha)*global + alpha*local
+    키/shape 불일치 항목은 글로벌 값 유지.
+    """
+    new_params = {}
+    for k, g_t in global_state.items():
+        l_t = local_state.get(k, None)
+        if l_t is None or g_t.shape != l_t.shape:
+            new_params[k] = g_t.clone()
+            continue
+        g = g_t.detach().to("cpu")
+        l = l_t.detach().to("cpu")
+        new_params[k] = (1.0 - alpha) * g + alpha * l
+    return new_params
+
+def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
+    """
+    위성에서 올라온 로컬 ckpt(=state_dict)를 글로벌에 합치고,
+    새로운 글로벌 ckpt 경로를 반환.
+    """
+    import torch
+    import datetime as _dt
+    if not ckpt_path or not os.path.exists(ckpt_path):
+        raise FileNotFoundError(f"ckpt not found: {ckpt_path}")
+
+    local_state = torch.load(ckpt_path, map_location="cpu")
+
+    with GLOBAL_MODEL_LOCK:
+        global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
+        GLOBAL_MODEL_STATE = aggregate_params(GLOBAL_MODEL_STATE, local_state, AGG_ALPHA)
+        GLOBAL_MODEL_VERSION += 1
+
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}_{ts}.ckpt"
+        torch.save(GLOBAL_MODEL_STATE, out_path)
+        # canonical link-like 파일
+        link_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}.ckpt"
+        try:
+            torch.save(GLOBAL_MODEL_STATE, link_path)
+        except Exception:
+            pass
+
+        print(f"[AGG] SAT{sat_id} merged -> global v{GLOBAL_MODEL_VERSION} ({out_path.name})")
+
+    # ---- 글로벌 평가 및 메트릭 로깅 (주기 EVAL_EVERY_N) ----
+    try:
+        if GLOBAL_MODEL_VERSION % max(1, EVAL_EVERY_N) == 0:
+            for split in ("val", "test"):
+                ds = _get_eval_dataset(split)
+                if ds is None:
+                    _log(f"[AGG] Global v{GLOBAL_MODEL_VERSION} {split}: skipped (no eval dataset)")
+                    continue
+
+                # 안전하게 CPU 평가(충돌 방지)
+                g_loss, g_acc, n = _evaluate_state_dict(GLOBAL_MODEL_STATE, ds, batch_size=EVAL_BS, device="cpu")
+                _log(f"[AGG] Global v{GLOBAL_MODEL_VERSION} {split}: acc={g_acc:.2f}% loss={g_loss:.4f} (n={n})")
+                _log_global_metrics(GLOBAL_MODEL_VERSION, split, g_loss, g_acc, n, str(out_path))
+    except Exception as e:
+        logger.warning(f"[AGG] global evaluation failed: {e}")
+
+    return str(out_path)
+
 # === 로컬 학습 함수: do_local_training ===
 def do_local_training(
     sat_id: int,
@@ -376,21 +555,30 @@ def do_local_training(
 
     # ---- 모델 준비 ----
     model = mobilenet_v3_small(num_classes=NUM_CLASSES)
-    if "get_initial_model_state" in globals():
+    if "get_global_model_snapshot" in globals():
         try:
-            state_dict = get_initial_model_state(sat_id)
+            start_gver, state_dict = get_global_model_snapshot()
             if state_dict is not None:
                 model.load_state_dict(state_dict)
         except Exception as e:
-            _log(f"SAT{sat_id}: failed to load initial model state: {e}")
+            _log(f"SAT{sat_id}: failed to load global snapshot v{start_gver}: {e}")
+    
+    _log(f"SAT{sat_id}: starting local training using global v{start_gver}")
+    
     model.to(device)
     model.train()
 
     # ---- 데이터 준비 (반드시 data 레지스트리 사용) ----
     dataset = get_training_dataset(sat_id)
+    pin_mem = torch.cuda.is_available() and DL_WORKERS > 0
     loader = DataLoader(
-        dataset, batch_size=BS, shuffle=True, drop_last=False,
-        num_workers=2, pin_memory=torch.cuda.is_available()
+        dataset,
+        batch_size=BS,
+        shuffle=True,
+        drop_last=False,
+        num_workers=DL_WORKERS,
+        pin_memory=pin_mem,
+        persistent_workers=(DL_WORKERS > 0),
     )
 
     # ---- 옵티마이저/로스 ----
@@ -400,12 +588,13 @@ def do_local_training(
     def save_ckpt(ep: int) -> str:
         import datetime as _dt
         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        fname = f"sat{sat_id}_round{train_states[sat_id].round_idx}_ep{ep}_{ts}.ckpt"
+        fname = f"sat{sat_id}_fromg{start_gver}_round{train_states[sat_id].round_idx}_ep{ep}_{ts}.ckpt"
         ckpt_path = CKPT_DIR / fname
         torch.save(model.state_dict(), ckpt_path)
         return str(ckpt_path)
 
     last_ckpt = None
+    n_total = len(dataset) if hasattr(dataset, "__len__") else None
 
     for ep in range(EPOCHS):
         if stop_event.is_set():
@@ -433,65 +622,30 @@ def do_local_training(
         acc = 100.0 * correct / max(1, total)
         last_ckpt = save_ckpt(ep)
 
-        _log(f"SAT{sat_id}: ep={ep+1}/{EPOCHS} loss={avg_loss:.4f} acc={acc:.2f}% saved={last_ckpt}")
+        _log(f"SAT{sat_id}: ep={ep+1}/{EPOCHS} loss={avg_loss:.4f} acc={acc:.2f}% from_gv={start_gver} saved={last_ckpt}")
+
+        # ---- 로컬 메트릭 로깅 ----
+        try:
+            _log_local_metrics(
+                sat_id=sat_id,
+                round_idx=train_states[sat_id].round_idx,
+                epoch=ep,
+                loss=avg_loss,
+                acc=acc,
+                n=n_total or total,
+                ckpt_path=last_ckpt
+            )
+        except Exception as e:
+            logger.warning(f"[METRICS] local write failed (sat{sat_id}): {e}")
 
     return last_ckpt or save_ckpt(-1)
-
-def get_initial_model_state(sat_id: int):
-    """로컬 학습 시작 시 초기 글로벌 가중치 제공 훅."""
+    
+def get_global_model_snapshot():
+    """(version, deepcopy(state_dict))를 원자적으로 가져온다."""
     with GLOBAL_MODEL_LOCK:
-        # deepcopy 로 안전 복제
-        return copy.deepcopy(GLOBAL_MODEL_STATE)
-
-def aggregate_params(global_state: dict, local_state: dict, alpha: float) -> dict:
-    """
-    단순 가중합 집계:
-      new = (1-alpha)*global + alpha*local
-    키/shape 불일치 항목은 글로벌 값 유지.
-    """
-    new_params = {}
-    for k, g_t in global_state.items():
-        l_t = local_state.get(k, None)
-        if l_t is None or g_t.shape != l_t.shape:
-            # 키가 없거나 shape 다르면 글로벌 유지
-            new_params[k] = g_t.clone()
-            continue
-        # 모두 CPU 텐서로 계산
-        g = g_t.detach().to("cpu")
-        l = l_t.detach().to("cpu")
-        new_params[k] = (1.0 - alpha) * g + alpha * l
-    return new_params
-
-def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
-    """
-    위성에서 올라온 로컬 ckpt(=state_dict)를 글로벌에 합치고,
-    새로운 글로벌 ckpt 경로를 반환.
-    """
-    import torch
-    import datetime as _dt
-    if not ckpt_path or not os.path.exists(ckpt_path):
-        raise FileNotFoundError(f"ckpt not found: {ckpt_path}")
-
-    local_state = torch.load(ckpt_path, map_location="cpu")
-
-    with GLOBAL_MODEL_LOCK:
-        global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
-        # 집계
-        GLOBAL_MODEL_STATE = aggregate_params(GLOBAL_MODEL_STATE, local_state, AGG_ALPHA)
-        GLOBAL_MODEL_VERSION += 1
-        # 저장
-        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}_{ts}.ckpt"
-        torch.save(GLOBAL_MODEL_STATE, out_path)
-        # 버전 넘버만 있는 심플 파일도 하나 남겨두고 싶다면(옵션):
-        link_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}.ckpt"
-        try:
-            # 동일 이름 있으면 덮어씀
-            torch.save(GLOBAL_MODEL_STATE, link_path)
-        except Exception:
-            pass
-        print(f"[AGG] SAT{sat_id} merged -> global v{GLOBAL_MODEL_VERSION} ({out_path.name})")
-        return str(out_path) 
+        ver = GLOBAL_MODEL_VERSION
+        state = copy.deepcopy(GLOBAL_MODEL_STATE)
+    return ver, state
 
 # ==================== FastAPI 앱/수명주기 ====================
 @asynccontextmanager
@@ -1661,6 +1815,72 @@ def get_data_summary(
         result["counts"]["listed_clients"] = len(target_ids)
 
     return result
+
+@app.get("/api/model/global", tags=["API/Model"])
+def get_global_model_info(detail: bool = Query(False, description="모든 글로벌 체크포인트 목록/메타데이터 포함")):
+    """
+    글로벌 모델의 현재 버전/경로를 조회합니다.
+    - version: GLOBAL_MODEL_VERSION (초기화 전이면 -1)
+    - latest_ckpt: CKPT_DIR/global_v{version}.ckpt 가 존재하면 그 경로를, 없으면 가장 최근 파일을 찾아 반환
+    - detail=true 일 때: CKPT_DIR 안의 global_v*.ckpt 파일 리스트와 파일 메타(크기, mtime)를 함께 반환
+    """
+    # 안전장치: 필요한 전역이 없을 수 있을 때 기본값
+    version = globals().get("GLOBAL_MODEL_VERSION", -1)
+    ckpt_dir = globals().get("CKPT_DIR", Path(__file__).parent / "ckpt")
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    # 우선 canonical 경로(global_v{ver}.ckpt)를 시도
+    canonical = ckpt_dir / f"global_v{version}.ckpt" if version >= 0 else None
+    latest_path = canonical if (canonical and canonical.exists()) else None
+
+    # 없으면 가장 최신 파일을 스캔
+    if latest_path is None:
+        # _find_latest_global_ckpt()가 있다면 활용
+        if "_find_latest_global_ckpt" in globals():
+            try:
+                best_ver, best_path = _find_latest_global_ckpt()
+                if best_ver is not None and best_path is not None and best_path.exists():
+                    version = max(version, best_ver)
+                    latest_path = best_path
+            except Exception:
+                pass
+        # 그래도 못 찾으면 패턴 매칭으로 스캔
+        if latest_path is None:
+            candidates = sorted(ckpt_dir.glob("global_v*.ckpt"))
+            if candidates:
+                latest_path = candidates[-1]
+
+    resp = {
+        "version": int(version),
+        "latest_ckpt": str(latest_path) if latest_path else None,
+        "initialized": bool(version >= 0 and latest_path is not None),
+    }
+
+    if detail:
+        files = []
+        for p in sorted(ckpt_dir.glob("global_v*.ckpt")):
+            try:
+                stat = p.stat()
+                files.append({
+                    "path": str(p),
+                    "size_bytes": stat.st_size,
+                    "mtime_epoch": int(stat.st_mtime),
+                    "mtime_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
+                })
+            except Exception:
+                files.append({"path": str(p)})
+        resp["files"] = files
+
+    return resp
+
+
+@app.get("/api/model/global/version", tags=["API/Model"])
+def get_global_model_version():
+    """
+    글로벌 모델 버전 숫자만 간단히 반환합니다.
+    """
+    version = globals().get("GLOBAL_MODEL_VERSION", -1)
+    return {"version": int(version)}
 
 # ==================== 기타 ====================
 async def auto_resume_after_delay():
