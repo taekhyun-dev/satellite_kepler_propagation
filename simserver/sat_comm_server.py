@@ -1821,7 +1821,7 @@ def get_trajectory(sat_id: int = Query(...)):
     segment: List[Dict[str, float]] = []
     segments: List[List[Dict[str, float]]] = []
 
-    for offset_sec in range(0, 7200, 30):
+    for offset_sec in range(0, 7200, 90):
         future = t0 + timedelta(seconds=offset_sec)
         t_ts = to_ts(future)
         subpoint = satellite.at(t_ts).subpoint()
