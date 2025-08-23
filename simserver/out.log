@@ -1,0 +1,1920 @@
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-7' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred: 
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once                           
+    handle._run()                                                  
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run                                       
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred: 
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError 
+
+During handling of the above exception, another exception occurred: 
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-17' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred: 
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred: 
+
+[
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-3' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-13' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-4' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-14' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-5' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-15' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-6' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-16' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+[INFO] [FL] SAT3: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat3_fromg0_round0_ep0_202
+50818_155931.ckpt (from_gv=0)
+[INFO] [FL] SAT3: starting local training using global v0
+[INFO] [FL] SAT11: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat11_fromg0_round1_ep1_2
+0250818_151139.ckpt (from_gv=0)
+[INFO] [FL] SAT11: starting local training using global v0
+[INFO] [FL] SAT16: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat16_fromg3_round1_ep0_2
+0250818_151027.ckpt (from_gv=3)
+[INFO] [FL] SAT16: starting local training using global v3
+[INFO] [FL] SAT8: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat8_fromg0_round0_ep9_202
+50818_150620.ckpt (from_gv=0)
+[INFO] [FL] SAT8: starting local training using global v0
+[INFO] [FL] SAT6: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat6_fromg0_round0_ep9_202
+50818_150851.ckpt (from_gv=0)
+[INFO] [FL] SAT6: starting local training using global v0
+[INFO] [FL] SAT19: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat19_fromg8_round1_ep0_2
+0250818_151205.ckpt (from_gv=8)
+[INFO] [FL] SAT19: starting local training using global v8
+[INFO] [FL] SAT13: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat13_fromg1_round1_ep0_2
+0250818_151110.ckpt (from_gv=1)
+[INFO] [FL] SAT13: starting local training using global v1
+[INFO] [FL] SAT12: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat12_fromg0_round1_ep1_2
+0250818_151124.ckpt (from_gv=0)
+[INFO] [FL] SAT12: starting local training using global v0
+[INFO] [FL] SAT9: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat9_fromg0_round0_ep0_202
+50818_155854.ckpt (from_gv=0)
+[INFO] [FL] SAT9: starting local training using global v0
+[INFO] [FL] SAT1: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat1_fromg0_round1_ep9_202
+50818_150923.ckpt (from_gv=0)
+[INFO] [FL] SAT1: starting local training using global v0
+[INFO] [FL] SAT10: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat10_fromg0_round1_ep3_2
+0250818_151153.ckpt (from_gv=0)
+[INFO] [FL] SAT10: starting local training using global v0
+[INFO] [FL] SAT18: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat18_fromg5_round1_ep3_2
+0250818_152508.ckpt (from_gv=5)
+[INFO] [FL] SAT18: starting local training using global v5
+[INFO] [FL] SAT17: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat17_fromg4_round1_ep9_2
+0250818_154141.ckpt (from_gv=4)
+[INFO] [FL] SAT17: starting local training using global v4
+[INFO] [FL] SAT2: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat2_fromg0_round0_ep0_202
+50818_155917.ckpt (from_gv=0)
+[INFO] [FL] SAT2: starting local training using global v0
+[INFO] [FL] SAT0: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat0_fromg0_round1_ep5_202
+50818_150935.ckpt (from_gv=0)
+[INFO] [FL] SAT0: starting local training using global v0
+[INFO] [FL] SAT14: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat14_fromg1_round1_ep0_2
+0250818_151051.ckpt (from_gv=1)
+[INFO] [FL] SAT14: starting local training using global v1
+[INFO] [FL] SAT4: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat4_fromg0_round0_ep9_202
+50818_150726.ckpt (from_gv=0)
+[INFO] [FL] SAT4: starting local training using global v0
+[INFO] [FL] SAT15: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat15_fromg2_round1_ep0_2
+0250818_151045.ckpt (from_gv=2)
+[INFO] [FL] SAT15: starting local training using global v2
+[INFO] [FL] SAT7: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat7_fromg0_round0_ep9_202
+50818_150810.ckpt (from_gv=0)
+[INFO] [FL] SAT7: starting local training using global v0
+[INFO] [FL] SAT5: resumed from local ckpt /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/sat5_fromg0_round1_ep7_202
+50818_152339.ckpt (from_gv=0)
+[INFO] [FL] SAT5: starting local training using global v0
+^[[A^[[A^[[A^CException ignored in: <module 'threading' from '/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py'>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py", line 1530, in _shutdown
+    atexit_call()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/concurrent/futures/thread.py", line 31, in _python_exit
+    t.join()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py", line 1089, in join
+    self._wait_for_tstate_lock()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py", line 1109, in _wait_for_tstate_lock
+    if lock.acquire(block, timeout):
+KeyboardInterrupt:
+^CTraceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 116, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 126, in _main
+    self = reduction.pickle.load(from_parent)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/torch/__init__.py", line 202, in <mod
+ule>
+    from torch._C import *  # noqa: F403
+RuntimeError: KeyboardInterrupt:
+Exception ignored in atexit callback: <function _exit_function at 0x7f16eeed8c10>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/util.py", line 334, in _exit_function
+    _run_finalizers(0)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/util.py", line 300, in _run_finalizers
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 116, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 126, in _main
+    self = reduction.pickle.load(from_parent)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/synchronize.py", line 110, in __setstate__
+    self._semlock = _multiprocessing.SemLock._rebuild(*state)
+FileNotFoundError: [Errno 2] No such file or directory
+    finalizer()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/util.py", line 224, in __call__
+    res = self._callback(*self._args, **self._kwargs)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/synchronize.py", line 88, in _cleanup
+    unregister(name, "semaphore")
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/resource_tracker.py", line 159, in unregister
+    self._send('UNREGISTER', name, rtype)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/resource_tracker.py", line 162, in _send
+    self.ensure_running()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/resource_tracker.py", line 83, in ensure_running
+    with self._lock:
+KeyboardInterrupt:
+terminate called recursively
+terminate called recursively
+terminate called recursively
+terminate called without an active exception
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 116, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 126, in _main
+    self = reduction.pickle.load(from_parent)
+_pickle.UnpicklingError: pickle data was truncated
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 116, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 126, in _main
+    self = reduction.pickle.load(from_parent)
+_pickle.UnpicklingError: pickle data was truncated
+중지됨 (코어 덤프됨)
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 116, in spawn_main
+    exitcode = _main(fd, parent_sentinel)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/spawn.py", line 126, in _main
+    self = reduction.pickle.load(from_parent)
+_pickle.UnpicklingError: pickle data was truncated
+/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appea
+r to be 104 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/multiprocessing/resource_tracker.py:237: UserWarning: resource_tracker: '/mp-3ile5i
+97': [Errno 2] No such file or directory
+  warnings.warn('resource_tracker: %r: %s' % (name, e))
+^C
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+uvicorn sat_comm_server:app --host 0.0.0.0 --port 8000
+INFO:     Started server process [1013632]
+INFO:     Waiting for application startup.
+Files already downloaded and verified
+[INFO] [DATA] CIFAR ready. per_client=2000, alpha=0.3, seed=42
+[AGG] Initialized new global model at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/global_v0_20250818_191959.ckpt
+[INFO] [FL] SAT101: no checkpoint to upload
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-6' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-16' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-7' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-17' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-8' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-18' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-9' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-19' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-10' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-20' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-11' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-21' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-3' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-12' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-22' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-13' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-4' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-14' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-5' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-15' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+[INFO] [FL] SAT0: starting local training using global v0
+[INFO] [FL] SAT14: starting local training using global v0
+[INFO] [FL] SAT4: starting local training using global v0
+[INFO] [FL] SAT6: starting local training using global v0
+[INFO] [FL] SAT3: starting local training using global v0
+[INFO] [FL] SAT10: starting local training using global v0
+[INFO] [FL] SAT9: starting local training using global v0
+[INFO] [FL] SAT18: starting local training using global v0
+[INFO] [FL] SAT12: starting local training using global v0
+[INFO] [FL] SAT1: starting local training using global v0
+[INFO] [FL] SAT2: starting local training using global v0
+[INFO] [FL] SAT17: starting local training using global v0
+[INFO] [FL] SAT15: starting local training using global v0
+[INFO] [FL] SAT7: starting local training using global v0
+[INFO] [FL] SAT8: starting local training using global v0
+[INFO] [FL] SAT13: starting local training using global v0
+[INFO] [FL] SAT16: starting local training using global v0
+[INFO] [FL] SAT11: starting local training using global v0
+[INFO] [FL] SAT19: starting local training using global v0
+[INFO] [FL] SAT5: starting local training using global v0
+[INFO] [FL] SAT12: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT9: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT3: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT6: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT2: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT14: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT13: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT17: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT15: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT0: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT5: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT4: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT8: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT1: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT11: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT7: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT16: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT18: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT10: device mismatch detected; falling back to CPU this batch
+[INFO] [FL] SAT19: device mismatch detected; falling back to CPU this batch
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+uvicorn sat_comm_server:app --host 0.0.0.0 --port 8000
+INFO:     Started server process [1017694]
+INFO:     Waiting for application startup.
+Files already downloaded and verified
+[INFO] [DATA] CIFAR ready. per_client=2000, alpha=0.3, seed=42
+[AGG] Loaded global model v0 from /home/jovyan/taekhyun/satellite_kepler_propagation/simserver/ckpt/global_v0_20250818_191959.ckpt
+[INFO] [FL] SAT101: no checkpoint to upload
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-7' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-17' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-8' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-18' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-9' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserver
+/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+unhandled exception during asyncio.run() shutdown
+task: <Task finished name='Task-19' coro=<_train_worker() done, defined at /home/jovyan/taekhyun/satellite_kepler_propagation/simserve
+r/sat_comm_server.py:299> exception=UnboundLocalError("local variable 'ckpt' referenced before assignment")>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 164, in star
+tup
+    server = await loop.create_server(
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1493, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 628, in run_until_complete
+    self.run_forever()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 595, in run_forever
+    self._run_once()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/base_events.py", line 1881, in _run_once
+    handle._run()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 71, in serve
+    await self._serve(sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 86, in _serv
+e
+    await self.startup(sockets=sockets)
+  File "/home/jovyan/.pyenv/versions/3.10.2/envs/kepler_propagation/lib/python3.10/site-packages/uvicorn/server.py", line 174, in star
+tup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 320, in _train_worker
+    ckpt = await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jovyan/taekhyun/satellite_kepler_propagation/simserver/sat_comm_server.py", line 326, in _train_worker
+    st.last_ckpt_path = ckpt
+UnboundLocalError: local variable 'ckpt' referenced before assignment
+^C^CException ignored in: <module 'threading' from '/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py'>
+Traceback (most recent call last):
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py", line 1530, in _shutdown
+    atexit_call()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/concurrent/futures/thread.py", line 31, in _python_exit
+    t.join()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py", line 1089, in join
+    self._wait_for_tstate_lock()
+  File "/home/jovyan/.pyenv/versions/3.10.2/lib/python3.10/threading.py", line 1109, in _wait_for_tstate_lock
+    if lock.acquire(block, timeout):
+KeyboardInterrupt:
+terminate called without an active exception
+terminate called recursively
+중지됨 (코어 덤프됨)
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+set -g mouse off^C
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+python simserver/eval_ckpts.py --device cuda:0tmux capture-pane -S - -p > out.log^C
+(kepler_propagation) jovyan@cheetah-746d736b73666832303132-ywlih7-79b8db784f-lv5lv:~/taekhyun/satellite_kepler_propagation/simserver$
+tmux capture-pane -S - -p > out.log
+

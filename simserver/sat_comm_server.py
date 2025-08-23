@@ -1,16 +1,16 @@
 # sat_comm_server.py
 from __future__ import annotations
 
-import os
+import os, sys, atexit
 import json
 import asyncio
 import threading
 import logging
 import copy
-import sys
-import time, random
+import time
 import importlib
 import math, re
+import traceback
 
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -30,7 +30,7 @@ from data import (
     DATA_REGISTRY, get_training_dataset,
 )
 
-# -------------------- Optional: torch for GPU detection --------------------
+# -------------------- Optional: torch --------------------
 try:
     import torch, torch.nn as nn
     _has_torch = True
@@ -40,7 +40,6 @@ except Exception:
 if _has_torch:
     import torch.multiprocessing as mp
     try:
-        # CUDA와 함께 fork는 위험. spawn을 강제하고 공유전략을 파일시스템으로.
         if mp.get_start_method(allow_none=True) != "spawn":
             mp.set_start_method("spawn", force=True)
         torch.multiprocessing.set_sharing_strategy("file_system")
@@ -58,18 +57,27 @@ if not logger.handlers:
 def _log(msg: str):
     logger.info(f"[FL] {msg}")
 
+def _exc_repr(e: Exception) -> str:
+    try:
+        return f"{type(e).__name__}: {e}"
+    except Exception:
+        return f"{type(e).__name__}"
+
+def _is_zip_file(path: Path) -> bool:
+    try:
+        import zipfile;  return zipfile.is_zipfile(path)
+    except Exception:     return False
+
 # -------------------- 환경/경로 --------------------
 def _is_wsl() -> bool:
     try:
         return "microsoft" in Path("/proc/version").read_text().lower()
     except Exception:
         return False
-    
-# DataLoader workers: WSL 또는 reload 환경이면 0으로(멀티프로세싱 비활성화)
+
 DEFAULT_DL_WORKERS = 0 if _is_wsl() or os.getenv("UVICORN_RELOAD") else 2
 DL_WORKERS = int(os.getenv("FL_DATALOADER_WORKERS", str(DEFAULT_DL_WORKERS)))
 
-# 체크포인트 디렉토리: simserver/ckpt
 BASE_DIR = Path(__file__).resolve().parent
 CKPT_DIR = BASE_DIR / "ckpt"
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,29 +105,39 @@ try:
     _has_pandas = True
 except Exception:
     _has_pandas = False
-    
-METRICS_LOCK = threading.Lock()  # 파일 append 동시성 보호
+
+METRICS_LOCK = threading.Lock()
 
 # ---- 글로벌 모델 집계 상태 ----
 GLOBAL_MODEL_LOCK = threading.Lock()
-GLOBAL_MODEL_STATE = None       # latest state_dict (CPU 텐서)
-GLOBAL_MODEL_VERSION = -1       # -1이면 아직 초기화 전
-AGG_ALPHA = float(os.getenv("FL_AGG_ALPHA", "0.2"))  # (1-α)G + αL 의 α
-EVAL_EVERY_N = int(os.getenv("FL_EVAL_EVERY_N", "2"))  # 글로벌 v가 N배수일 때만 평가
-EVAL_BS = int(os.getenv("FL_EVAL_BS", "1024"))
+GLOBAL_MODEL_STATE = None
+GLOBAL_MODEL_VERSION = -1
 
-STALENESS_TAU = float(os.getenv("FL_STALENESS_TAU", "14"))     # 감쇠 속도
-STALENESS_MODE = os.getenv("FL_STALENESS_MODE", "exp")         # "exp" or "poly"
-W_MIN = float(os.getenv("FL_STALENESS_W_MIN", "0.02"))          # 바닥 가중치(선택)
-S_MAX_DROP = int(os.getenv("FL_STALENESS_MAX_DROP", "0"))      # 0이면 드랍 안함
-ALPHA_MAX = float(os.getenv("FL_AGG_ALPHA_MAX", "0.5"))
+# 튜닝 환경변수
+AGG_ALPHA     = float(os.getenv("FL_AGG_ALPHA", "0.25"))      # 기본 집계 비율
+STALENESS_TAU = float(os.getenv("FL_STALENESS_TAU", "14"))   # 감쇠 속도
+STALENESS_MODE= os.getenv("FL_STALENESS_MODE", "exp")        # "exp" or "poly"
+W_MIN         = float(os.getenv("FL_STALENESS_W_MIN", "0.0"))# 바닥 가중치(신선 update에만)
+S_MAX_DROP    = int(os.getenv("FL_STALENESS_MAX_DROP", "64"))# s 너무 크면 드랍
+ALPHA_MAX     = float(os.getenv("FL_AGG_ALPHA_MAX", "0.5"))
+FRESH_CUTOFF  = int(os.getenv("FL_STALENESS_FRESH_CUTOFF", "40"))
 
-import re, math
+# 기타 평가 주기
+EVAL_EVERY_N = int(os.getenv("FL_EVAL_EVERY_N", "2"))
+EVAL_BS      = int(os.getenv("FL_EVAL_BS", "1024"))
+
+# --- Eval caching / dedup ---
+EVAL_DS_CACHE = {"val": None, "test": None}
+EVAL_FALLBACK_LOGGED = set()
+EVAL_DONE = set()
+EVAL_DONE_LOCK = threading.Lock()
+
 _fromg_re = re.compile(r"fromg(\d+)")
 
+
 # ==================== 시뮬레이션 상태 변수 ====================
-satellites: Dict[int, EarthSatellite] = {}         # sat_id -> EarthSatellite
-sat_comm_status: Dict[int, bool] = {}              # sat_id -> 통신 가능 여부
+satellites: Dict[int, EarthSatellite] = {}
+sat_comm_status: Dict[int, bool] = {}
 current_sat_positions: Dict[int, Dict[str, float]] = {}
 
 observer_locations = {
@@ -148,44 +166,35 @@ current_observer_name = "Berlin"
 observer = observer_locations[current_observer_name]
 
 ts = load.timescale()
-sim_time = datetime(2025, 3, 30, 0, 0, 0)  # 시뮬레이션 시작 시간
+sim_time = datetime(2025, 3, 30, 0, 0, 0)
 threshold_deg = 40
 sim_paused = False
 auto_resume_delay_sec = 0
-sim_delta_sec = 10.0        # 시뮬레이션 한 스텝 증가량(초)
-real_interval_sec = 0.01   # 실제 루프 슬립(초)
-
+sim_delta_sec = 10.0
+real_interval_sec = 0.01
 
 def to_ts(dt: datetime):
-    """datetime -> skyfield ts.utc(...)"""
     return ts.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
 
 def get_current_time_utc():
     return to_ts(sim_time)
 
 def elevation_deg(sat: EarthSatellite, topox: Topos, t_ts):
-    """위성-관측점 고도(deg) 계산."""
     alt, _, _ = (sat - topox).at(t_ts).altaz()
     return alt.degrees
 
 
 # ==================== 연합학습(FL) 런타임 상태 ====================
-# GPU 개수 자동/환경 지정
-NUM_GPUS = int(os.getenv("NUM_GPUS", "0"))
-if NUM_GPUS == 0 and _has_torch and torch.cuda.is_available():
+# GPU 개수 (환경 그대로 존중: CUDA_VISIBLE_DEVICES 를 사용자가 설정 가능)
+NUM_GPUS = 0
+if _has_torch and torch.cuda.is_available():
     NUM_GPUS = torch.cuda.device_count()
 
-# GPU당 동시 세션 수(기본 1)
 SESSIONS_PER_GPU = int(os.getenv("SESSIONS_PER_GPU", "10"))
-
-# 총 동시 학습 작업 수
-MAX_TRAIN_WORKERS = int(os.getenv(
-    "FL_MAX_WORKERS",
-    str(max(1, (NUM_GPUS or 1) * max(1, SESSIONS_PER_GPU))))
-)
+MAX_TRAIN_WORKERS = int(os.getenv("FL_MAX_WORKERS", str(max(1, (NUM_GPUS or 1) * max(1, SESSIONS_PER_GPU)))))
 
 training_executor = ThreadPoolExecutor(max_workers=MAX_TRAIN_WORKERS)
-uploader_executor = ThreadPoolExecutor(max_workers=4)  # 업로드/집계는 짧게
+uploader_executor = ThreadPoolExecutor(max_workers=4)
 
 train_queue: "asyncio.Queue[int]" = asyncio.Queue(
     maxsize=int(os.getenv("FL_QUEUE_MAX", "1000"))
@@ -198,23 +207,67 @@ class TrainState:
     gpu_id: Optional[int] = None
     stop_event: threading.Event = field(default_factory=threading.Event)
     last_ckpt_path: Optional[str] = None
-    round_idx: int = 0  # False→True마다 라운드 증가
+    round_idx: int = 0
     in_queue: bool = False
 
 train_states: Dict[int, TrainState] = {}
 
+# --- GPU 선택 이후에 호출될 유틸들 ---------------------
+def _count_visible_gpus_from_env() -> int | None:
+    cvd = os.getenv("CUDA_VISIBLE_DEVICES")
+    if cvd is None:
+        return None                      # 환경변수 미지정 → 모름
+    cvd = cvd.strip()
+    if cvd == "":
+        return 0                         # 강제로 CPU
+    return len([x for x in cvd.split(",") if x.strip() != ""])
+
+def compute_num_gpus() -> int:
+    # 0) 사용자가 NUM_GPUS를 명시하면 그 값을 우선하되, 보이는 GPU 개수로 cap
+    env_num = os.getenv("NUM_GPUS")
+    if env_num is not None:
+        try:
+            wanted = max(0, int(env_num))
+        except ValueError:
+            wanted = 0
+        vis = _count_visible_gpus_from_env()
+        return min(wanted, vis) if vis is not None else wanted
+
+    # 1) CUDA_VISIBLE_DEVICES가 설정되어 있으면 그 개수 사용
+    vis = _count_visible_gpus_from_env()
+    if vis is not None:
+        # 토치가 CUDA를 못 쓰는 상황(드라이버/런타임 불일치)이면 안전하게 0
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return 0
+        except Exception:
+            pass
+        return vis
+
+    # 2) 마지막으로 물리 GPU 개수 (환경변수 미설정 시)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.device_count()
+    except Exception:
+        pass
+    return 0
+
+# 2) 이제 보이는 GPU 기준으로 NUM_GPUS 계산
+NUM_GPUS = compute_num_gpus()
+# ---------------------------------------------------------
+
 def _save_last_global_ptr(path: Path, version: int):
-    """last_global.json을 원자적으로 갱신"""
     try:
         tmp = LAST_GLOBAL_PTR.with_suffix(".json.tmp")
         with tmp.open("w", encoding="utf-8") as f:
             json.dump({"path": str(path), "version": int(version)}, f)
-        tmp.replace(LAST_GLOBAL_PTR)  # 원자적 교체
+        tmp.replace(LAST_GLOBAL_PTR)
     except Exception as e:
         logger.warning(f"[AGG] write last_global.json failed: {e}")
 
 def _load_last_global_ptr() -> tuple[int, Optional[Path]]:
-    """포인터 파일에서 (version, path) 로드. 없으면 (-1, None)."""
     try:
         if LAST_GLOBAL_PTR.exists():
             with LAST_GLOBAL_PTR.open("r", encoding="utf-8") as f:
@@ -228,10 +281,6 @@ def _load_last_global_ptr() -> tuple[int, Optional[Path]]:
     return -1, None
 
 def _find_latest_global_ckpt():
-    """
-    ckpt/global_v*.ckpt 중 가장 최신(버전 우선, 동일 버전이면 타임스탬프 최근)을 반환.
-    예) global_v12.ckpt, global_v12_20250813_150128.ckpt 모두 지원
-    """
     paths = list(CKPT_DIR.glob("global_v*.ckpt"))
     best_ver, best_ts, best_path = -1, "", None
     for p in paths:
@@ -239,7 +288,7 @@ def _find_latest_global_ckpt():
         if not m:
             continue
         v = int(m.group(1))
-        ts = m.group(2) or ""  # 타임스탬프 없으면 빈 문자열
+        ts = m.group(2) or ""
         if (v > best_ver) or (v == best_ver and ts > best_ts):
             best_ver, best_ts, best_path = v, ts, p
     return best_ver, best_path
@@ -248,7 +297,6 @@ def _local_ptr_path(sat_id: int) -> Path:
     return CKPT_DIR / f"sat{sat_id}_last.json"
 
 def _save_last_local_ptr(sat_id: int, path: str, *, from_gver: Optional[int] = None, round_idx: Optional[int] = None, epoch: Optional[int] = None):
-    """sat{ID}_last.json을 원자적으로 갱신"""
     try:
         p = _local_ptr_path(sat_id)
         tmp = p.with_suffix(".json.tmp")
@@ -266,7 +314,6 @@ def _save_last_local_ptr(sat_id: int, path: str, *, from_gver: Optional[int] = N
         logger.warning(f"[LOCAL] write last ptr failed (sat{sat_id}): {e}")
 
 def _load_last_local_ptr(sat_id: int) -> Optional[Dict[str, Any]]:
-    """포인터에서 메타 로드. 경로가 존재하지 않으면 None."""
     try:
         p = _local_ptr_path(sat_id)
         if not p.exists():
@@ -287,26 +334,49 @@ def _enqueue_training(sat_id: int):
     try:
         train_queue.put_nowait(sat_id)
         st.in_queue = True
-        # _log(f"SAT{sat_id}: queued")  # 필요하면 주석 해제
     except asyncio.QueueFull:
-        # 너무 많은 요청이면 조용히 드롭(또는 드물게만 로그)
         pass
 
+def _model_device(model: torch.nn.Module) -> torch.device:
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
+
+def _move_optimizer_state(optimizer: torch.optim.Optimizer, device: torch.device):
+    for state in optimizer.state.values():
+        for k, v in list(state.items()):
+            if torch.is_tensor(v):
+                state[k] = v.to(device, non_blocking=True)
+
+def _ensure_all_on_model_device(model, optimizer, criterion=None):
+    dev = _model_device(model)
+    model.to(dev)
+    if criterion is not None:
+        # CrossEntropyLoss(weight=...) 같은 경우 weight 텐서도 같이 이동해야 함
+        if hasattr(criterion, 'weight') and torch.is_tensor(criterion.weight):
+            criterion.weight = criterion.weight.to(dev, non_blocking=True)
+        try:
+            criterion.to(dev)
+        except Exception:
+            pass
+    if optimizer is not None:
+        _move_optimizer_state(optimizer, dev)
+    return dev
+
 def _build_worker_gpu_list():
-    # 예: NUM_GPUS=2, SESSIONS_PER_GPU=2 -> [0,0,1,1]
     if NUM_GPUS > 0:
         return [gid for gid in range(NUM_GPUS) for _ in range(SESSIONS_PER_GPU)]
-    # GPU 없을 때도 워커는 필요(=CPU 학습)
     return [None] * max(1, SESSIONS_PER_GPU)
 
 async def _train_worker(gpu_id: Optional[int]):
     loop = asyncio.get_running_loop()
     while True:
+        ckpt = None  # <- 미리 초기화
+
         sat_id = await train_queue.get()
         st = train_states[sat_id]
         st.in_queue = False
-
-        # 이미 다른 곳에서 시작되었으면 skip
         if st.running:
             train_queue.task_done()
             continue
@@ -316,17 +386,16 @@ async def _train_worker(gpu_id: Optional[int]):
         st.running = True
 
         def _job():
-            # do_local_training 안에서 gpu_id로 디바이스 선택
             return do_local_training(sat_id=sat_id, stop_event=st.stop_event, gpu_id=gpu_id)
 
-        # 스레드풀에서 학습 실행 (이벤트루프 블로킹 방지)
         fut = loop.run_in_executor(training_executor, _job)
-        st.future = fut  # asyncio.Future
+        st.future = fut
 
         try:
             ckpt = await fut
         except Exception as e:
-            _log(f"SAT{sat_id}: training ERROR: {e}")
+            tb = traceback.format_exc()
+            _log(f"SAT{sat_id}: training ERROR: {e}\n{tb}")
             ckpt = None
         finally:
             st.last_ckpt_path = ckpt
@@ -335,7 +404,6 @@ async def _train_worker(gpu_id: Optional[int]):
             train_queue.task_done()
 
 def _upload_and_aggregate_async(sat_id: int, ckpt_path: Optional[str]):
-    """업로드/집계 비동기 실행(사용자 훅 호출)."""
     if not ckpt_path:
         _log(f"SAT{sat_id}: no checkpoint to upload")
         return
@@ -360,16 +428,17 @@ def _on_become_visible(sat_id: int):
         st.stop_event.set()
         def _cb(_fut):
             try:
-                _fut.result()  # 예외 전파/소거
+                _fut.result()
             except Exception:
                 pass
             _upload_and_aggregate_async(sat_id, train_states[sat_id].last_ckpt_path)
-        # asyncio.Future / concurrent.futures.Future 둘 다 지원
         try:
             st.future.add_done_callback(_cb)
         except Exception:
-            # 일부 구현에서 add_done_callback 시그니처 차이 처리
-            pass
+            try:
+                asyncio.ensure_future(st.future).add_done_callback(_cb)
+            except Exception:
+                pass
     else:
         _upload_and_aggregate_async(sat_id, st.last_ckpt_path)
 
@@ -381,7 +450,6 @@ def _append_csv_row(path: Path, header: List[str], row: List[Any]):
         with path.open("a", encoding="utf-8") as f:
             if new_file:
                 f.write(",".join(header) + "\n")
-            # 간단 CSV escape
             def esc(x):
                 s = "" if x is None else str(x)
                 if ("," in s) or ("\"" in s):
@@ -390,21 +458,29 @@ def _append_csv_row(path: Path, header: List[str], row: List[Any]):
             f.write(",".join(esc(x) for x in row) + "\n")
 
 def _append_excel_row(xlsx_path: Path, header: List[str], row: List[Any], sheet: str = "metrics"):
-    if not _has_pandas:
+    if not _has_pandas or os.getenv("FL_DISABLE_XLSX", "0") in ("1","true","True"):
         return
     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
     import pandas as pd
     try:
+        df = None
         if xlsx_path.exists():
-            df = pd.read_excel(xlsx_path, sheet_name=sheet)
-        else:
+            if not _is_zip_file(xlsx_path):
+                try: xlsx_path.unlink()
+                except Exception: pass
+            else:
+                try:
+                    df = pd.read_excel(xlsx_path, sheet_name=sheet, engine="openpyxl")
+                except Exception:
+                    df = pd.DataFrame(columns=header)
+        if df is None:
             df = pd.DataFrame(columns=header)
         s = pd.Series(row, index=header)
         df = pd.concat([df, s.to_frame().T], ignore_index=True)
         with pd.ExcelWriter(xlsx_path, engine="openpyxl", mode="w") as w:
             df.to_excel(w, sheet_name=sheet, index=False)
     except Exception as e:
-        logger.warning(f"[METRICS] Excel write failed: {e}")
+        logger.warning(f"[METRICS] Excel write failed: {_exc_repr(e)}")
 
 def _log_local_metrics(sat_id: int, round_idx: int, epoch: int, loss: float, acc: float, n: int, ckpt_path: str):
     ts = datetime.now().isoformat()
@@ -427,7 +503,6 @@ def _log_global_metrics(
     flops_M: float = None,
     latency_ms: float = None,
 ):
-    """글로벌 메트릭을 단일 CSV/XLSX로 누적 저장."""
     ts = datetime.now().isoformat()
     row = [
         ts,
@@ -442,16 +517,11 @@ def _log_global_metrics(
         (f"{latency_ms:.3f}" if latency_ms is not None else ""),
         ckpt_path,
     ]
-
-    # 단일 CSV로만 저장(버전별 파일 생성 X)
     _append_csv_row(GLOBAL_METRICS_CSV, GLOBAL_METRICS_HEADER, row)
-
-    # 단일 XLSX도 함께 유지(있으면)
     try:
         _append_excel_row(GLOBAL_METRICS_XLSX, GLOBAL_METRICS_HEADER, row, sheet="global")
     finally:
         _log(f"[METRICS] global v{version} {split} saved -> {GLOBAL_METRICS_CSV}")
-
 
 def _client_num_samples(sat_id: int) -> int:
     try:
@@ -460,201 +530,50 @@ def _client_num_samples(sat_id: int) -> int:
     except Exception:
         return 1
     
-def _alpha_for(sat_id: int, s: int) -> float:
-    # staleness decay
-    decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
-    # size-aware scaling (로컬 샘플수가 평균보다 크면 조금 더 크게)
-    try:
-        mean_n = sum(_client_num_samples(sid) for sid in satellites) / max(1, len(satellites))
-    except Exception:
-        mean_n = _client_num_samples(sat_id)
-    scale = _client_num_samples(sat_id) / max(1e-9, mean_n)
+def _staleness_factor(s: int, tau: float, mode: str) -> float:
+    if tau <= 0: return 1.0
+    if mode == "poly":
+        return (1.0 + s) ** (-tau)
+    # default exp
+    return math.exp(-float(s) / tau)
 
-    alpha_eff = max(W_MIN, AGG_ALPHA * decay * scale)
-    alpha_eff = min(alpha_eff, ALPHA_MAX)
-    return alpha_eff
-
-def _get_eval_dataset(split: str):
-    """
-    split in {"val","test"}.
-    1) DATA_REGISTRY.get_{split}_dataset() 시도
-    2) data 모듈 함수(get_validation_dataset / get_test_dataset) 시도
-    3) torchvision CIFAR-10(test) 폴백
-    """
-    # 1) registry method
-    meth_name = f"get_{'validation' if split=='val' else 'test'}_dataset"
-    if hasattr(DATA_REGISTRY, meth_name):
-        try:
-            ds = getattr(DATA_REGISTRY, meth_name)()
-            if ds is not None:
-                _log(f"[EVAL] using DATA_REGISTRY.{meth_name}()")
-                return ds
-        except Exception as e:
-            logger.warning(f"[EVAL] DATA_REGISTRY.{meth_name} failed: {e}")
-
-    # 2) data module fallbacks
-    try:
-        data_mod = importlib.import_module("data")
-        fn_name = "get_validation_dataset" if split == "val" else "get_test_dataset"
-        if hasattr(data_mod, fn_name):
-            ds = getattr(data_mod, fn_name)()
-            if ds is not None:
-                _log(f"[EVAL] using data.{fn_name}()")
-                return ds
-    except Exception as e:
-        logger.warning(f"[EVAL] data.{fn_name} failed: {e}")
-
-
-    # 3) torchvision CIFAR-10 test 폴백
-    try:
-        from torchvision.datasets import CIFAR10
-        from torchvision import transforms
-
-        img_size = int(os.getenv("FL_IMG_SIZE", "32"))  # 훈련이 224로 리사이즈면 224로 지정
-        mean = tuple(map(float, os.getenv("FL_NORM_MEAN", "0.4914,0.4822,0.4465").split(",")))
-        std  = tuple(map(float, os.getenv("FL_NORM_STD",  "0.2470,0.2435,0.2616").split(",")))
-        tfm = transforms.Compose([
-            transforms.Resize(img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ])
-        ds = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
-        _log(f"[EVAL] using torchvision CIFAR10(test) fallback | size={img_size}, norm=mean{mean},std{std}")
-        return ds
-    except Exception as e:
-        logger.warning(f"[EVAL] fallback CIFAR10 failed: {e}")
-
-    return None
-
-def _evaluate_state_dict(state_dict: dict, dataset, batch_size: int = 512, device: str = "cpu"):
-    """
-    state_dict를 주어진 dataset(TensorDataset 예상) 위에서 평가(loss, acc).
-    기본은 CPU에서 평가(안전).
-    """
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader
-    from torchvision.models import mobilenet_v3_small
-
-    num_classes = int(os.getenv("FL_NUM_CLASSES", "10"))
-
-    model = mobilenet_v3_small(num_classes=num_classes)
-    model.load_state_dict(state_dict)
-    model.to(device).eval()
-
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False)
-    criterion = nn.CrossEntropyLoss(reduction="sum")
-    total_loss, total_correct, total = 0.0, 0, 0
-
-    conf = torch.zeros((num_classes, num_classes), dtype=torch.int64)
-
-    with torch.no_grad():
-        for x, y in loader:
-            x = x.to(device)
-            y = y.to(device, dtype=torch.long)  # ← 중요
-            logits = model(x)
-            loss = criterion(logits, y)
-
-            total_loss += float(loss.item())
-            pred = logits.argmax(1)
-            total_correct += int((pred == y).sum().item())
-            total += y.size(0)
-
-            # 혼동행렬(벡터화)
-            for c in range(num_classes):
-                mask = (y == c)
-                if mask.any():
-                    binc = torch.bincount(pred[mask].cpu(), minlength=num_classes)
-                    conf[c] += binc.to(conf.dtype)
-
-    avg_loss = total_loss / max(1, total)
-    acc = 100.0 * total_correct / max(1, total)
-
-    tp = torch.diag(conf).to(torch.float32)
-    fp = conf.sum(0).to(torch.float32) - tp
-    fn = conf.sum(1).to(torch.float32) - tp
-    precision = tp / (tp + fp + 1e-12)
-    recall    = tp / (tp + fn + 1e-12)
-    f1_macro  = float((2 * precision * recall / (precision + recall + 1e-12)).mean().item() * 100.0)
-
-    # --- Latency (bs=1) ---
-    # 입력 크기 추정 (dataset 첫 샘플)
-    try:
-        sample_shape = dataset[0][0].shape  # (C,H,W)
-    except Exception:
-        sample_shape = (3, 32, 32)  # CIFAR 폴백
-
-
-    x1 = torch.randn(1, *sample_shape, device=device)
-    model.eval()
-    with torch.no_grad():
-        # warmup
-        for _ in range(10):
-            _ = model(x1)
-        if isinstance(device, torch.device) and device.type == "cuda":
-            torch.cuda.synchronize(device)
-        t0 = time.perf_counter()
-        for _ in range(50):
-            _ = model(x1)
-        if isinstance(device, torch.device) and device.type == "cuda":
-            torch.cuda.synchronize(device)
-        latency_ms = (time.perf_counter() - t0) / 50.0 * 1000.0
-
-    # --- MAdds / FLOPs (선택) ---
-    madds_M, flops_M = None, None
-    try:
-        # THOP 우선 시도
-        from thop import profile
-        macs, _params = profile(model, inputs=(x1,), verbose=False)
-        madds_M = macs / 1e6
-        flops_M = (2 * macs) / 1e6  # multiply+add를 각각 1 FLOP으로 간주
-    except Exception:
-        # fvcore 대안(설치돼 있다면 자동 사용)
-        try:
-            from fvcore.nn import FlopCountAnalysis
-            model_cpu = model.to("cpu")
-            x_cpu = x1.detach().to("cpu")
-            flop_an = FlopCountAnalysis(model_cpu, x_cpu)
-            flops = float(flop_an.total())
-            flops_M = flops / 1e6
-            madds_M = flops_M / 2.0
-            model.to(device)
-        except Exception:
-            pass  # 남겨두기(메트릭 없음)
-
-    return avg_loss, acc, total, f1_macro, madds_M, flops_M, float(latency_ms)
-
-# -------------------- 글로벌 초기화/집계 --------------------
 def _init_global_model():
     """서버 기동 시 글로벌 가중치 로드/초기화."""
     global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
     import torch
+
     with GLOBAL_MODEL_LOCK:
         # 1) 포인터 파일 우선
         ver, path = _load_last_global_ptr()
         # 2) 없으면 디렉토리 스캔
         if path is None:
             ver, path = _find_latest_global_ckpt()
-            
+
         if path and path.exists() and ver >= 0:
-            GLOBAL_MODEL_STATE = torch.load(path, map_location="cpu")
-            GLOBAL_MODEL_VERSION = ver
-            print(f"[AGG] Loaded global model v{GLOBAL_MODEL_VERSION} from {path}")
-        else:
-            # 없으면 새로 생성해서 v0 저장
-            model = _new_model_skeleton()
-            GLOBAL_MODEL_STATE = model.state_dict()
-            GLOBAL_MODEL_VERSION = 0
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            init_path = CKPT_DIR / f"global_v0_{ts}.ckpt"
-            link_path = CKPT_DIR / "global_v0.ckpt"
-            torch.save(GLOBAL_MODEL_STATE, init_path)
             try:
-                torch.save(GLOBAL_MODEL_STATE, link_path)
-            except Exception:
-                pass
-            _save_last_global_ptr(init_path, 0)
-            print(f"[AGG] Initialized new global model at {init_path}")
+                GLOBAL_MODEL_STATE = torch.load(path, map_location="cpu")
+                GLOBAL_MODEL_VERSION = ver
+                print(f"[AGG] Loaded global model v{GLOBAL_MODEL_VERSION} from {path}")
+                return
+            except Exception as e:
+                print(f"[AGG] Failed to load existing global ({path}): {e}. Re-initializing...")
+
+        # 새로 생성해서 v0 저장
+        model = _new_model_skeleton()
+        GLOBAL_MODEL_STATE = model.state_dict()
+        GLOBAL_MODEL_VERSION = 0
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        init_path = CKPT_DIR / f"global_v0_{ts}.ckpt"
+        link_path = CKPT_DIR / "global_v0.ckpt"
+        try:
+            torch.save(GLOBAL_MODEL_STATE, init_path)
+            torch.save(GLOBAL_MODEL_STATE, link_path)
+        except Exception as e:
+            print(f"[AGG] Initial save warning: {e}")
+        _save_last_global_ptr(init_path, 0)
+        print(f"[AGG] Initialized new global model at {init_path}")
+
 
 def _new_model_skeleton():
     """학습과 동일한 아키텍처로 빈 모델 생성."""
@@ -663,116 +582,364 @@ def _new_model_skeleton():
     model = mobilenet_v3_small(num_classes=num_classes)
     return model
 
-def _find_latest_global_ckpt():
-    """ckpt/global_v*.ckpt 중 가장 최신 버전을 찾아 반환."""
-    import re
-    paths = sorted(CKPT_DIR.glob("global_v*.ckpt"))
-    best = None
-    best_ver = -1
-    for p in paths:
-        m = re.search(r"global_v(\d+)\.ckpt$", p.name)
-        if m:
-            v = int(m.group(1))
-            if v > best_ver:
-                best_ver, best = v, p
-    return best_ver, best
+# --- 크기/신선도 가중 α 계산
+def _alpha_for(sat_id: int, s: int) -> float:
+    """
+    s: staleness = (current_global_version - base_global_version_from_client)
+    α_eff = α_base * decay(s) * size_scale, 단 지나치게 오래되면 0.
+    """
+    AGG_ALPHA     = _get_env_float("FL_AGG_ALPHA", 0.2)
+    STALENESS_TAU = _get_env_float("FL_STALENESS_TAU", 14.0)
+    STALENESS_MODE= os.getenv("FL_STALENESS_MODE", "exp")
+    W_MIN         = _get_env_float("FL_STALENESS_W_MIN", 0.0)
+    ALPHA_MAX     = _get_env_float("FL_AGG_ALPHA_MAX", 0.5)
+    FRESH_CUTOFF  = _get_env_int("FL_STALENESS_FRESH_CUTOFF", 40)
 
-def _bn_recalibrate(state_dict: dict, dataset, batches: int = 20, bs: int = 256) -> dict:
-    import torch
-    from torch.utils.data import DataLoader
-    from torchvision.models import mobilenet_v3_small
-    model = mobilenet_v3_small(num_classes=int(os.getenv("FL_NUM_CLASSES","10")))
-    model.load_state_dict(state_dict, strict=True)
-    model.train()  # BN 통계 업데이트 모드
-    loader = DataLoader(dataset, batch_size=bs, shuffle=True, num_workers=0)
-    with torch.no_grad():
-        for i, (x, _) in enumerate(loader):
-            model(x)
-            if i+1 >= batches: break
-    model.eval()
-    return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+    # 신선도 컷오프
+    if s >= max(FRESH_CUTOFF, 0):
+        return 0.0
 
+    decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
 
-def collect_bn_keys(model: nn.Module):
-    bn_keys = set()
-    for name, m in model.named_modules():
-        if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-            for suffix in ("weight", "bias", "running_mean", "running_var", "num_batches_tracked"):
-                k = f"{name}.{suffix}" if name else suffix
-                if k in model.state_dict():
-                    bn_keys.add(k)
-    return bn_keys
+    # 데이터 크기 보정
+    try:
+        # satellites 전역이 있다면 평균 샘플 수를 사용
+        mean_n = sum(_client_num_samples(sid) for sid in satellites) / max(1, len(satellites))
+    except Exception:
+        mean_n = _client_num_samples(sat_id)
 
-def load_partial_skip(model: nn.Module, src_sd: dict, skip_keys: set):
-    dst = model.state_dict()
-    to_load = {k: v for k, v in src_sd.items() if k in dst and k not in skip_keys and v.shape == dst[k].shape}
-    missing = [k for k in dst.keys() if k not in to_load and k not in skip_keys]
-    model.load_state_dict({**dst, **to_load})
-    return to_load.keys(), missing
+    scale = _client_num_samples(sat_id) / max(1e-9, mean_n)
 
-# ===== server: FedAvg with BN-skip + key-intersection =====
-def fedavg_weighted(client_sds, client_weights, skip_keys: set):
-    keys = set.intersection(*(set(sd.keys()) for sd in client_sds))
-    keys = {k for k in keys if k not in skip_keys}  # BN 제외
-    wsum = float(sum(client_weights))
-    out = {}
-    for k in keys:
-        t0 = client_sds[0][k]
-        if torch.is_floating_point(t0):
-            acc = None
-            for w, sd in zip(client_weights, client_sds):
-                v = sd[k].to(dtype=torch.float32)
-                acc = (w * v) if acc is None else acc + (w * v)
-            out[k] = (acc / wsum).to(t0.dtype)
-        else:
-            out[k] = t0  # 비부동(정수) 버퍼는 임의 복사
-    return out
+    alpha_eff = float(AGG_ALPHA * decay * scale)
+    if W_MIN > 0.0:
+        alpha_eff = max(W_MIN, alpha_eff)
+    alpha_eff = min(alpha_eff, ALPHA_MAX)
+    return float(alpha_eff)
 
+# --- 파라미터 합성(글로벌 <- 로컬) : BN 러닝스탯/카운트 안전 처리
 def aggregate_params(global_state: dict, local_state: dict, alpha: float) -> dict:
     """
-    단순 가중합 집계:
-      new = (1-alpha)*global + alpha*local
-    키/shape 불일치 항목은 글로벌 값 유지.
+    new = (1 - alpha) * global + alpha * local
+    - 키가 없거나 shape가 다르면 글로벌 값 유지
+    - BN running_*는 축소된 alpha로 blend (기본 0.1배), num_batches_tracked는 글로벌 유지
     """
-    new_params = {}
+    import torch
+
+    out = {}
+    alpha_bn_scale = _get_env_float("FL_AGG_BN_SCALE", 0.1)
+
     for k, g_t in global_state.items():
         l_t = local_state.get(k)
-        if l_t is None or g_t.shape != l_t.shape:
-            new_params[k] = g_t.clone(); continue
+        if l_t is None or getattr(g_t, "shape", None) != getattr(l_t, "shape", None):
+            out[k] = g_t.clone() if hasattr(g_t, "clone") else g_t
+            continue
 
-        # --- BN running stats 처리 ---
+        # BN running stats
         if k.endswith("running_mean") or k.endswith("running_var"):
-            mode = os.getenv("FL_AGG_BN_MODE", "blend")
-            if mode == "blend" and g_t.is_floating_point() and l_t.is_floating_point():
+            if hasattr(g_t, "is_floating_point") and g_t.is_floating_point() and l_t.is_floating_point():
                 g = g_t.detach().to("cpu", dtype=torch.float32)
                 l = l_t.detach().to("cpu", dtype=torch.float32)
-                alpha_bn = float(os.getenv("FL_AGG_BN_SCALE", "0.1")) * alpha
-                new_params[k] = (1.0 - alpha_bn) * g + alpha_bn * l
+                a = float(alpha) * alpha_bn_scale
+                out[k] = ((1.0 - a) * g + a * l).to(dtype=g_t.dtype)
             else:
-                new_params[k] = g_t.clone()
+                out[k] = g_t.clone()
             continue
 
         if k.endswith("num_batches_tracked"):
-            new_params[k] = g_t.clone(); continue
+            out[k] = g_t.clone()
+            continue
 
-        if not g_t.is_floating_point() or not l_t.is_floating_point():
-            new_params[k] = g_t.clone(); continue
+        # 일반 파라미터
+        if hasattr(g_t, "is_floating_point") and g_t.is_floating_point() and l_t.is_floating_point():
+            g = g_t.detach().to("cpu", dtype=torch.float32)
+            l = l_t.detach().to("cpu", dtype=torch.float32)
+            out[k] = ((1.0 - alpha) * g + alpha * l).to(dtype=g_t.dtype)
+        else:
+            out[k] = g_t.clone() if hasattr(g_t, "clone") else g_t
 
-        g = g_t.detach().to("cpu", dtype=torch.float32)
-        l = l_t.detach().to("cpu", dtype=torch.float32)
-        new_params[k] = (1.0 - alpha) * g + alpha * l
-    return new_params
+    return out
 
+# --- 평가용 데이터셋 로딩 (레지스트리 → data 모듈 → CIFAR10 폴백)
+def _get_eval_dataset(split: str):
+    """
+    split in {"val","test"}.
+    우선순위:
+      1) DATA_REGISTRY.get_validation/test_dataset()
+      2) data.get_validation_dataset / get_test_dataset
+      3) torchvision CIFAR-10(test) with resize+norm
+    결과는 EVAL_DS_CACHE에 캐싱.
+    """
+    # 캐시
+    if split in EVAL_DS_CACHE and EVAL_DS_CACHE[split] is not None:
+        return EVAL_DS_CACHE[split]
+
+    # 1) DATA_REGISTRY 메서드
+    try:
+        if "DATA_REGISTRY" in globals():
+            meth_name = f"get_{'validation' if split=='val' else 'test'}_dataset"
+            meth = getattr(DATA_REGISTRY, meth_name, None)
+            if callable(meth):
+                ds = meth()
+                if ds is not None:
+                    EVAL_DS_CACHE[split] = ds
+                    return ds
+    except Exception as e:
+        logger.warning(f"[EVAL] DATA_REGISTRY method failed ({split}): {e}")
+
+    # 2) data 모듈 함수
+    try:
+        data_mod = importlib.import_module("data")
+        fn_name = "get_validation_dataset" if split == "val" else "get_test_dataset"
+        fn = getattr(data_mod, fn_name, None)
+        if callable(fn):
+            ds = fn()
+            if ds is not None:
+                EVAL_DS_CACHE[split] = ds
+                return ds
+    except Exception as e:
+        logger.warning(f"[EVAL] data.{split} fallback failed: {e}")
+
+    # 3) torchvision CIFAR10(test)
+    try:
+        from torchvision.datasets import CIFAR10
+        from torchvision import transforms
+
+        img_size = _get_env_int("FL_IMG_SIZE", 32)
+        mean = tuple(map(float, os.getenv("FL_NORM_MEAN", "0.4914,0.4822,0.4465").split(",")))
+        std  = tuple(map(float, os.getenv("FL_NORM_STD",  "0.2470,0.2435,0.2616").split(",")))
+
+        tfm = transforms.Compose([
+            transforms.Resize(img_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ])
+
+        # CIFAR_ROOT가 없으면 ./data 로
+        try:
+            root_dir = str(CIFAR_ROOT)
+        except NameError:
+            root_dir = str(Path.cwd() / "data")
+
+        ds = CIFAR10(root=root_dir, train=False, download=True, transform=tfm)
+        if "fallback" not in EVAL_FALLBACK_LOGGED:
+            _log(f"[EVAL] fallback CIFAR10(test) | size={img_size}, norm=mean{mean},std{std}")
+            EVAL_FALLBACK_LOGGED.add("fallback")
+        EVAL_DS_CACHE[split] = ds
+        return ds
+    except Exception as e:
+        logger.warning(f"[EVAL] torchvision CIFAR10 fallback failed: {e}")
+        return None
+
+# 안전 가드: 외부 전역이 없을 때 기본값 준비
+try:
+    EVAL_DS_CACHE
+except NameError:
+    EVAL_DS_CACHE = {"val": None, "test": None}
+try:
+    EVAL_FALLBACK_LOGGED
+except NameError:
+    EVAL_FALLBACK_LOGGED = set()
+
+# env 기반 하이퍼파라미터(이미 전역이 있다면 그것을 사용)
+def _get_env_float(name, default):
+    try:
+        return float(os.getenv(name, str(default)))
+    except Exception:
+        return float(default)
+
+def _get_env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return int(default)
+
+# --- if _staleness_factor가 없으면 정의 (있으면 이 블록은 무시됨)
+try:
+    _staleness_factor
+except NameError:
+    import math
+    def _staleness_factor(s: int, tau: float, mode: str = "exp") -> float:
+        if tau <= 0: return 1.0
+        if mode == "poly":
+            return (1.0 + s) ** (-tau)
+        return math.exp(-float(s) / tau)
+
+# --- 파일명에서 from_gver 추출
 def _parse_fromg(ckpt_path: str) -> int | None:
-    m = _fromg_re.search(os.path.basename(ckpt_path))
+    """
+    예: 'sat3_fromg12_round1_ep0_20250818_145232.ckpt' -> 12
+    """
+    m = re.search(r"fromg(\d+)", os.path.basename(ckpt_path))
     return int(m.group(1)) if m else None
-    
-def _staleness_factor(s: int, tau: float, mode: str) -> float:
-    if tau <= 0: return 1.0
-    if mode == "poly":
-        return (1.0 + s) ** (-tau)
-    # default exp
-    return math.exp(-float(s) / tau)
+
+# --- 클라이언트 샘플수 (없으면 1)
+try:
+    _client_num_samples
+except NameError:
+    def _client_num_samples(_sat_id: int) -> int:
+        return 1
+
+# --- state_dict 평가기 (loss/acc/F1, latency, FLOPs)
+def _evaluate_state_dict(state_dict: dict, dataset, batch_size: int = 512, device: str = "cpu"):
+    """
+    주어진 state_dict를 dataset 위에서 평가.
+    반환: (avg_loss, acc%, total_samples, f1_macro%, madds_M, flops_M, latency_ms)
+    """
+    import torch, torch.nn as nn
+    from torch.utils.data import DataLoader
+    from torchvision.models import mobilenet_v3_small
+
+    dev = torch.device(device) if not isinstance(device, torch.device) else device
+    num_classes = _get_env_int("FL_NUM_CLASSES", 10)
+
+    model = mobilenet_v3_small(num_classes=num_classes)
+    model.load_state_dict(state_dict, strict=False)
+    model.to(dev).eval()
+
+    pin_mem = (isinstance(dev, torch.device) and dev.type == "cuda")
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=pin_mem)
+    criterion = nn.CrossEntropyLoss(reduction="sum")
+
+    total_loss, total_correct, total = 0.0, 0, 0
+    conf = torch.zeros((num_classes, num_classes), dtype=torch.int64)
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(dev, non_blocking=pin_mem)
+            y = y.to(dev, dtype=torch.long, non_blocking=pin_mem)
+
+            logits = model(x)
+            loss = criterion(logits, y)
+            total_loss += float(loss.item())
+
+            pred = logits.argmax(1)
+            total_correct += int((pred == y).sum().item())
+            total += y.size(0)
+
+            # 클래스별 bincount로 혼동행렬 누적
+            for c in range(num_classes):
+                m = (y == c)
+                if m.any():
+                    conf[c] += torch.bincount(pred[m].detach().cpu(), minlength=num_classes).to(conf.dtype)
+
+    avg_loss = total_loss / max(1, total)
+    acc = 100.0 * total_correct / max(1, total)
+
+    # F1-macro
+    tp = conf.diag().to(torch.float32)
+    fp = conf.sum(0).to(torch.float32) - tp
+    fn = conf.sum(1).to(torch.float32) - tp
+    precision = tp / (tp + fp + 1e-12)
+    recall    = tp / (tp + fn + 1e-12)
+    f1_macro  = float((2 * precision * recall / (precision + recall + 1e-12)).mean().item() * 100.0)
+
+    # Latency (bs=1)
+    try:
+        sample_shape = dataset[0][0].shape  # (C,H,W)
+    except Exception:
+        sample_shape = (3, 32, 32)
+
+    x1 = torch.randn(1, *sample_shape, device=dev)
+    with torch.no_grad():
+        # warmup
+        for _ in range(5):
+            _ = model(x1)
+        if isinstance(dev, torch.device) and dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        t0 = time.perf_counter()
+        for _ in range(20):
+            _ = model(x1)
+        if isinstance(dev, torch.device) and dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        latency_ms = (time.perf_counter() - t0) / 20.0 * 1000.0
+
+    # FLOPs / MAdds (best-effort)
+    madds_M, flops_M = None, None
+    try:
+        from thop import profile
+        macs, _params = profile(model, inputs=(x1,), verbose=False)
+        madds_M = macs / 1e6
+        flops_M = (2 * macs) / 1e6
+    except Exception:
+        try:
+            from fvcore.nn import FlopCountAnalysis
+            model_cpu = model.to("cpu")
+            x_cpu = x1.detach().to("cpu")
+            flop_an = FlopCountAnalysis(model_cpu, x_cpu)
+            flops_M = float(flop_an.total()) / 1e6
+            madds_M = flops_M / 2.0
+            model.to(dev)
+        except Exception:
+            pass
+
+    return avg_loss, acc, total, f1_macro, madds_M, flops_M, float(latency_ms)
+
+def _bn_recalibrate(state_dict: dict, dataset, batches: int = 20, bs: int = 256, device: Optional[str] = None) -> dict:
+    """
+    BatchNorm 통계(running_mean/var)만 다시 맞추기 위한 짧은 패스.
+    - state_dict를 로드한 동일 아키텍처 모델을 train() 모드로 두고,
+      몇 개 배치만 순전파하여 BN 통계 업데이트.
+    - 가중치는 변경되지 않으며, 추론 시 정확도 하락을 막는 데 도움.
+    반환: recalibrated state_dict (CPU 텐서)
+    """
+    if dataset is None:
+        # 데이터셋 없으면 원본 반환
+        return state_dict
+
+    import torch
+    from torch.utils.data import DataLoader
+
+    # 모델 준비: 프로젝트에 _new_model_skeleton()이 있으면 우선 사용
+    try:
+        model = _new_model_skeleton()
+    except Exception:
+        from torchvision.models import mobilenet_v3_small
+        num_classes = int(os.getenv("FL_NUM_CLASSES", "10"))
+        model = mobilenet_v3_small(num_classes=num_classes)
+
+    # state_dict 로드 (shape 불일치 허용)
+    try:
+        model.load_state_dict(state_dict, strict=False)
+    except Exception:
+        # 일부 키 타입/디바이스 이슈 대비
+        fixed = {k: (v.detach().cpu() if hasattr(v, "detach") else v) for k, v in state_dict.items()}
+        model.load_state_dict(fixed, strict=False)
+
+    # 디바이스 선택
+    if device is None:
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        dev = torch.device(device) if not isinstance(device, torch.device) else device
+
+    model.to(dev)
+    model.train()  # BN 통계 업데이트를 위해 train 모드 필요
+
+    # 로더 구성
+    pin = (isinstance(dev, torch.device) and dev.type == "cuda")
+    loader = DataLoader(
+        dataset,
+        batch_size=int(bs),
+        shuffle=True,
+        num_workers=0,          # 안정성 우선
+        pin_memory=pin,
+        drop_last=False,
+    )
+
+    # 몇 배치만 통과시키면 충분
+    seen = 0
+    # 그래디언트/그래프 불필요 → inference_mode로 빠르게
+    with torch.inference_mode():
+        for x, *_ in loader:
+            x = x.to(dev, non_blocking=pin)
+            _ = model(x)
+            seen += 1
+            if seen >= int(batches):
+                break
+
+    # 평가 모드 전환 후 CPU state_dict 반환
+    model.eval()
+    recal = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+    return recal
 
 def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
     """
@@ -789,6 +956,7 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
     with GLOBAL_MODEL_LOCK:
         global GLOBAL_MODEL_STATE, GLOBAL_MODEL_VERSION
 
+        # [3] staleness-aware α/size 보정
         base_ver = _parse_fromg(ckpt_path)
         s = max(0, GLOBAL_MODEL_VERSION - (base_ver or GLOBAL_MODEL_VERSION))
         if S_MAX_DROP > 0 and s > S_MAX_DROP:
@@ -797,6 +965,20 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
         
         # decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
         alpha_eff = _alpha_for(sat_id, s)
+        if S_MAX_DROP > 0 and s > S_MAX_DROP:
+            _log(f"[AGG] drop stale update: s={s} (> {S_MAX_DROP}) from {ckpt_path}")
+            return str(CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}.ckpt")
+        # 지나치게 노화된 업데이트는 0 가중치
+        if alpha_eff <= 0.0:
+            _log(f"[AGG] ignore stale/low-weight update: s={s}, alpha_eff={alpha_eff:.4f} (base_gv={base_ver})")
+            ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}_{ts}.ckpt"
+            # 최신 상태를 '새 파일명'으로도 남겨두면, 호출자 관점에서 경로가 항상 갱신됨
+            try:
+                torch.save(GLOBAL_MODEL_STATE, out_path)
+            except Exception:
+                pass
+            return str(out_path)
         
         GLOBAL_MODEL_STATE = aggregate_params(GLOBAL_MODEL_STATE, local_state, alpha_eff)
         GLOBAL_MODEL_VERSION += 1
@@ -847,6 +1029,10 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
                     if ds is None: 
                         _log(f"[AGG] Global v{GLOBAL_MODEL_VERSION} {split}: no dataset")
                         return
+                    with EVAL_DONE_LOCK:
+                        key = (GLOBAL_MODEL_VERSION, split)
+                        if key in EVAL_DONE:
+                            return
                     g_loss, g_acc, n, g_f1, g_madds, g_flops, g_lat = _evaluate_state_dict(
                         GLOBAL_MODEL_STATE, ds, batch_size=EVAL_BS, device="cpu"
                     )
@@ -855,6 +1041,8 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
                         GLOBAL_MODEL_VERSION, split, g_loss, g_acc, n, str(out_path),
                         f1_macro=g_f1, madds_M=g_madds, flops_M=g_flops, latency_ms=g_lat
                     )
+                    with EVAL_DONE_LOCK:
+                        EVAL_DONE.add((GLOBAL_MODEL_VERSION, split))
 
                 _eval_and_log("val",  ds_val)
                 _eval_and_log("test", ds_test)
@@ -886,10 +1074,14 @@ def do_local_training(
     import torch.optim as optim
     from torchvision.models import mobilenet_v3_small
 
+    # 수치 안정성/재현성
+    try:
+        import torch.backends.cudnn as cudnn; cudnn.benchmark = True
+    except Exception: pass
     # ---- 하이퍼파라미터: 환경변수 -> 인자 -> 기본값 ----
     EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND", "10")) if epochs is None else int(epochs)
     LR     = float(os.getenv("FL_LR", "1e-3"))          if lr is None else float(lr)
-    BS     = int(os.getenv("FL_BATCH_SIZE", "64"))      if batch_size is None else int(batch_size)
+    BS     = int(os.getenv("FL_BATCH_SIZE", "128"))      if batch_size is None else int(batch_size)
     NUM_CLASSES = int(os.getenv("FL_NUM_CLASSES", "10"))
 
     # ---- 디바이스 선정 ----
@@ -936,6 +1128,7 @@ def do_local_training(
     loader = DataLoader(
         dataset,
         batch_size=BS,
+        # 드물게 CPU 텐서 남는 일 방지: GPU일 때만 pin_memory
         shuffle=True,
         drop_last=False,
         num_workers=DL_WORKERS,
@@ -947,13 +1140,16 @@ def do_local_training(
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LR)
 
+    clip_norm = float(os.getenv("FL_CLIP_NORM", "1.0"))
+    max_bad_skips = int(os.getenv("FL_MAX_BAD_BATCH_SKIPS", "20"))
+
     def save_ckpt(ep: int) -> str:
         import datetime as _dt
         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = f"sat{sat_id}_fromg{start_gver}_round{train_states[sat_id].round_idx}_ep{ep}_{ts}.ckpt"
         ckpt_path = CKPT_DIR / fname
         torch.save(model.state_dict(), ckpt_path)
-        # ▼ 포인터 갱신
+        # 포인터 갱신
         _save_last_local_ptr(
             sat_id,
             str(ckpt_path),
@@ -961,7 +1157,7 @@ def do_local_training(
             round_idx=train_states[sat_id].round_idx,
             epoch=ep,
         )
-        # ▼ 메모리 상태에도 최신 경로 반영 (가시성 전이 시 업로드 용)
+        # 메모리 상태에도 최신 경로 반영 (가시성 전이 시 업로드 용)
         try:
             train_states[sat_id].last_ckpt_path = str(ckpt_path)
         except Exception:
@@ -971,21 +1167,103 @@ def do_local_training(
     last_ckpt = None
     n_total = len(dataset) if hasattr(dataset, "__len__") else None
 
+    # 학습 루프
     for ep in range(EPOCHS):
         if stop_event.is_set():
             break
 
         running_loss, correct, total = 0.0, 0, 0
+        bad_skips = 0
+
+        # 현재 모델의 디바이스/자료형을 한 번 읽어둠
+        param0 = next(model.parameters())
+        device = _ensure_all_on_model_device(model, optimizer, criterion)
+        model_device = param0.device
+        model_dtype  = param0.dtype  # torch.float32
+
         for images, labels in loader:
             if stop_event.is_set():
                 break
+
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
+            # # --- 배치 언팩 ---
+            # if isinstance(batch, (list, tuple)) and len(batch) >= 2:
+            #     images, labels = batch[0], batch[1]
+            # else:
+            #     images, labels = batch, None
+
+            # --- 텐서화 & 디바이스/자료형 정합성 보장 ---
+            if not torch.is_tensor(images):
+                images = torch.as_tensor(images)
+
+            # 항상 모델 파라미터의 device/dtype에 맞춘다
+            # (여기서 non_blocking=True는 pinned memory일 때만 이점. pinned 아니어도 문제 없음)
+            # images = images.to(device=model_device, non_blocking=True)
+            assert torch.is_tensor(images), f"type(images)={type(images)}"
+            if images.is_floating_point() and images.dtype != model_dtype:
+                images = images.to(model_dtype)
+
+            if labels is not None:
+                if not torch.is_tensor(labels):
+                    labels = torch.as_tensor(labels)
+                labels = labels.to(device=model_device, non_blocking=True, dtype=torch.long)
+
             optimizer.zero_grad(set_to_none=True)
-            outputs = model(images)
+
+            # (선택) AMP 사용 시 device_type을 자동 지정
+            use_amp = (device.type == "cuda")
+            try:
+                if use_amp:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        outputs = model(images)
+                else:
+                    outputs = model(images)
+            except RuntimeError as e:
+                msg = str(e)
+                # 드문 혼합 디바이스/타입 에러가 남았을 때: 모든 상태를 강제 재정렬하고 1회만 재시도
+                if ("Expected all tensors to be on the same device" in msg
+                    or "and weight type" in msg
+                    or "Expected object of device type" in msg):
+                    # 모델/옵티마/크리테리언 상태를 다시 한번 강제 정렬
+                    device = _ensure_all_on_model_device(model, optimizer, criterion)
+                    images = images.to(device, non_blocking=True)
+                    labels = labels.to(device, non_blocking=True)
+                    # 재시도
+                    if use_amp and device.type == "cuda":
+                        with torch.autocast(device_type="cuda", dtype=torch.float16):
+                            outputs = model(images)
+                    else:
+                        outputs = model(images)
+                else:
+                    # 다른 런타임 에러는 그대로 올림
+                    raise
+
+            if labels is None:
+                # (x,y) 구조가 아닌 데이터셋 방어
+                continue
+
             loss = criterion(outputs, labels)
+
+            if not torch.isfinite(loss):
+                bad_skips += 1
+                if bad_skips % 5 == 0:
+                    # 불안정 시 LR 다운
+                    for g in optimizer.param_groups:
+                        g['lr'] = max(g['lr'] * 0.5, 1e-6)
+                    _log(f"SAT{sat_id}: non-finite loss; halved LR to {optimizer.param_groups[0]['lr']:.2e}")
+                if bad_skips >= max_bad_skips:
+                    _log(f"SAT{sat_id}: too many bad batches (>= {max_bad_skips}); breaking epoch")
+                    break
+                continue
+
             loss.backward()
+            if clip_norm > 0:
+                try:
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
+                except Exception:
+                    pass
             optimizer.step()
 
             running_loss += float(loss.item())
@@ -996,10 +1274,8 @@ def do_local_training(
         avg_loss = running_loss / max(1, len(loader))
         acc = 100.0 * correct / max(1, total)
         last_ckpt = save_ckpt(ep)
-
         _log(f"SAT{sat_id}: ep={ep+1}/{EPOCHS} loss={avg_loss:.4f} acc={acc:.2f}% from_gv={start_gver} saved={last_ckpt}")
 
-        # ---- 로컬 메트릭 로깅 ----
         try:
             _log_local_metrics(
                 sat_id=sat_id,
@@ -1117,13 +1393,15 @@ async def initialize_simulation():
         sat_comm_status[sat_id] = False
         train_states[sat_id] = TrainState()
     
+    # 각 위성별 로컬 포인터 복원
     try:
-        meta = _load_last_local_ptr(sat_id)
-        if meta and meta.get("path"):
-            train_states[sat_id].last_ckpt_path = meta["path"]
-            _log(f"[INIT] SAT{sat_id}: restored last local ckpt -> {meta['path']} (from_gv={meta.get('from_gver')})")
+        for _sid in satellites.keys():
+            meta = _load_last_local_ptr(_sid)
+            if meta and meta.get("path"):
+                train_states[_sid].last_ckpt_path = meta["path"]
+                _log(f"[INIT] SAT{_sid}: restored last local ckpt -> {meta['path']} (from_gv={meta.get('from_gver')})")
     except Exception as e:
-        logger.warning(f"[INIT] restore local ptr failed (sat{sat_id}): {e}")
+        logger.warning(f"[INIT] restore local ptr failed: {_exc_repr(e)}")
 
     # --- CIFAR-10 로드 & 위성별 가상 데이터셋 배정 ---
     try:
@@ -1623,7 +1901,6 @@ def iot_clusters_ui():
             for (let [name, loc] of Object.entries(clusters)) {{
                 const lat = loc.latitude;
                 const lon = loc.longitude;
-                L.circleMarker([lat, lon],{{radius: 5, color: 'blue'}}).addTo(map);
                 const marker = L.circleMarker([lat, lon], {{ radius: 5, color: 'blue' }}).addTo(map);
                 marker.bindTooltip(name, {{
                     permanent: true,

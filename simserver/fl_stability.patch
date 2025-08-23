@@ -1,0 +1,347 @@
+t a/sat_comm_server.py b/sat_comm_server.py
+index 3c5d1ab..9f7a3cd 100644
+--- a/sat_comm_server.py
++++ b/sat_comm_server.py
+@@ -63,6 +63,18 @@ logger.addHandler(h)
+ def _log(msg: str):
+     logger.info(f"[FL] {msg}")
+ 
++# --------- small helpers ---------
++def _exc_repr(e: Exception) -> str:
++    try:
++        return f"{type(e).__name__}: {e}"
++    except Exception:
++        return f"{type(e).__name__}"
++
++def _is_zip_file(path: Path) -> bool:
++    try:
++        import zipfile;  return zipfile.is_zipfile(path)
++    except Exception:     return False
++
+ # -------------------- 환경/경로 --------------------
+ def _is_wsl() -> bool:
+     try:
+@@ -122,17 +134,30 @@ GLOBAL_MODEL_STATE = None       # latest state_dict (CPU 텐서)
+ GLOBAL_MODEL_VERSION = -1       # -1이면 아직 초기화 전
+-AGG_ALPHA = float(os.getenv("FL_AGG_ALPHA", "0.2"))  # (1-α)G + αL 의 α
++AGG_ALPHA = float(os.getenv("FL_AGG_ALPHA", "0.2"))  # (1-α)G + αL 의 α
+ EVAL_EVERY_N = int(os.getenv("FL_EVAL_EVERY_N", "2"))  # 글로벌 v가 N배수일 때만 평가
+ EVAL_BS = int(os.getenv("FL_EVAL_BS", "1024"))
+ 
+-STALENESS_TAU = float(os.getenv("FL_STALENESS_TAU", "14"))     # 감쇠 속도
+-STALENESS_MODE = os.getenv("FL_STALENESS_MODE", "exp")         # "exp" or "poly"
+-W_MIN = float(os.getenv("FL_STALENESS_W_MIN", "0.02"))          # 바닥 가중치(선택)
+-S_MAX_DROP = int(os.getenv("FL_STALENESS_MAX_DROP", "0"))      # 0이면 드랍 안함
+-ALPHA_MAX = float(os.getenv("FL_AGG_ALPHA_MAX", "0.5"))
++STALENESS_TAU = float(os.getenv("FL_STALENESS_TAU", "14"))     # 감쇠 속도
++STALENESS_MODE = os.getenv("FL_STALENESS_MODE", "exp")         # "exp" or "poly"
++# 지나치게 오래된 업데이트에 바닥가중치를 주면 글로벌이 무너질 수 있어 0.0 기본
++W_MIN = float(os.getenv("FL_STALENESS_W_MIN", "0.0"))
++# s가 너무 크면 아예 드랍
++S_MAX_DROP = int(os.getenv("FL_STALENESS_MAX_DROP", "64"))
++ALPHA_MAX = float(os.getenv("FL_AGG_ALPHA_MAX", "0.5"))
++# s가 이 값(기본 8)보다 크면 α를 0으로(극단적 노화 차단)
++FRESH_CUTOFF = int(os.getenv("FL_STALENESS_FRESH_CUTOFF", "8"))
+ 
+ import re, math
+ _fromg_re = re.compile(r"fromg(\d+)")
+ 
++# --- Eval caching / dedup ---
++EVAL_DS_CACHE = {"val": None, "test": None}
++EVAL_FALLBACK_LOGGED = set()  # {"val","test"}
++EVAL_DONE = set()             # {(version, "val"/"test")}
++EVAL_DONE_LOCK = threading.Lock()
++
+@@ -445,10 +470,22 @@ def _append_excel_row(xlsx_path: Path, header: List[str], row: List[Any], sheet: str = "metrics"):
+-    if not _has_pandas:
++    if not _has_pandas or os.getenv("FL_DISABLE_XLSX", "0") in ("1","true","True"):
+         return
+     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+     import pandas as pd
+     try:
+-        if xlsx_path.exists():
+-            df = pd.read_excel(xlsx_path, sheet_name=sheet)
+-        else:
+-            df = pd.DataFrame(columns=header)
++        df = None
++        if xlsx_path.exists():
++            # 깨진 파일이면 새로 시작
++            if not _is_zip_file(xlsx_path):
++                try: xlsx_path.unlink()
++                except Exception: pass
++            else:
++                try:
++                    df = pd.read_excel(xlsx_path, sheet_name=sheet, engine="openpyxl")
++                except Exception:
++                    # 읽기 실패 시 새로 시작
++                    df = pd.DataFrame(columns=header)
++        if df is None:
++            df = pd.DataFrame(columns=header)
+         s = pd.Series(row, index=header)
+         df = pd.concat([df, s.to_frame().T], ignore_index=True)
+-        with pd.ExcelWriter(xlsx_path, engine="openpyxl", mode="w") as w:
++        with pd.ExcelWriter(xlsx_path, engine="openpyxl", mode="w") as w:
+             df.to_excel(w, sheet_name=sheet, index=False)
+     except Exception as e:
+-        logger.warning(f"[METRICS] Excel write failed: {e}")
++        logger.warning(f"[METRICS] Excel write failed: {_exc_repr(e)}")
+ 
+@@ -489,11 +526,29 @@ def _alpha_for(sat_id: int, s: int) -> float:
+-    decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
++    decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
+     # size-aware scaling (로컬 샘플수가 평균보다 크면 조금 더 크게)
+     try:
+         mean_n = sum(_client_num_samples(sid) for sid in satellites) / max(1, len(satellites))
+     except Exception:
+         mean_n = _client_num_samples(sat_id)
+     scale = _client_num_samples(sat_id) / max(1e-9, mean_n)
+-
+-    alpha_eff = max(W_MIN, AGG_ALPHA * decay * scale)
+-    alpha_eff = min(alpha_eff, ALPHA_MAX)
++    # 지나치게 오래된 업데이트는 α=0으로 차단
++    if s >= max(FRESH_CUTOFF, 0):
++        return 0.0
++    alpha_eff = AGG_ALPHA * decay * scale
++    # 바닥가중치는 '신선한 업데이트'에만 적용
++    if W_MIN > 0.0:
++        alpha_eff = max(W_MIN, alpha_eff)
++    alpha_eff = float(min(alpha_eff, ALPHA_MAX))
+     return alpha_eff
+ 
+@@ -530,42 +585,61 @@ def _get_eval_dataset(split: str):
+-    # 1) registry method
++    # 캐시 사용
++    if split in EVAL_DS_CACHE and EVAL_DS_CACHE[split] is not None:
++        return EVAL_DS_CACHE[split]
++
++    # 1) registry method
+     meth_name = f"get_{'validation' if split=='val' else 'test'}_dataset"
+     if hasattr(DATA_REGISTRY, meth_name):
+         try:
+             ds = getattr(DATA_REGISTRY, meth_name)()
+             if ds is not None:
+                 _log(f"[EVAL] using DATA_REGISTRY.{meth_name}()")
+-                return ds
++                EVAL_DS_CACHE[split] = ds
++                return EVAL_DS_CACHE[split]
+         except Exception as e:
+             logger.warning(f"[EVAL] DATA_REGISTRY.{meth_name} failed: {e}")
+ 
+     # 2) data module fallbacks
+     try:
+         data_mod = importlib.import_module("data")
+         fn_name = "get_validation_dataset" if split == "val" else "get_test_dataset"
+         if hasattr(data_mod, fn_name):
+             ds = getattr(data_mod, fn_name)()
+             if ds is not None:
+                 _log(f"[EVAL] using data.{fn_name}()")
+-                return ds
++                EVAL_DS_CACHE[split] = ds
++                return EVAL_DS_CACHE[split]
+     except Exception as e:
+         logger.warning(f"[EVAL] data.{fn_name} failed: {e}")
+ 
+ 
+     # 3) torchvision CIFAR-10 test 폴백
+     try:
+         from torchvision.datasets import CIFAR10
+         from torchvision import transforms
+ 
+         img_size = int(os.getenv("FL_IMG_SIZE", "32"))  # 훈련이 224로 리사이즈면 224로 지정
+         mean = tuple(map(float, os.getenv("FL_NORM_MEAN", "0.4914,0.4822,0.4465").split(",")))
+         std  = tuple(map(float, os.getenv("FL_NORM_STD",  "0.2470,0.2435,0.2616").split(",")))
+         tfm = transforms.Compose([
+             transforms.Resize(img_size),
+             transforms.ToTensor(),
+             transforms.Normalize(mean, std),
+         ])
+-        ds = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
+-        _log(f"[EVAL] using torchvision CIFAR10(test) fallback | size={img_size}, norm=mean{mean},std{std}")
+-        return ds
++        # 한 번만 다운로드 메시지가 보이도록 download=False (이미 DATA_REGISTRY에서 받았음)
++        ds = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
++        if "fallback" not in EVAL_FALLBACK_LOGGED:
++            _log(f"[EVAL] using torchvision CIFAR10(test) fallback | size={img_size}, norm=mean{mean},std{std}")
++            EVAL_FALLBACK_LOGGED.add("fallback")
++        EVAL_DS_CACHE[split] = ds
++        return EVAL_DS_CACHE[split]
+     except Exception as e:
+         logger.warning(f"[EVAL] fallback CIFAR10 failed: {e}")
+ 
+     return None
+@@ -738,6 +812,20 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
+-        # decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
+-        alpha_eff = _alpha_for(sat_id, s)
++        # decay = _staleness_factor(s, STALENESS_TAU, STALENESS_MODE)
++        alpha_eff = _alpha_for(sat_id, s)
++        if S_MAX_DROP > 0 and s > S_MAX_DROP:
++            _log(f"[AGG] drop stale update: s={s} (> {S_MAX_DROP}) from {ckpt_path}")
++            return str(CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}.ckpt")
++        # 지나치게 노화된 업데이트는 0 가중치
++        if alpha_eff <= 0.0:
++            _log(f"[AGG] ignore stale/low-weight update: s={s}, alpha_eff={alpha_eff:.4f} (base_gv={base_ver})")
++            ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
++            out_path = CKPT_DIR / f"global_v{GLOBAL_MODEL_VERSION}_{ts}.ckpt"
++            # 최신 상태를 '새 파일명'으로도 남겨두면, 호출자 관점에서 경로가 항상 갱신됨
++            try:
++                torch.save(GLOBAL_MODEL_STATE, out_path)
++            except Exception:
++                pass
++            return str(out_path)
+         
+-        GLOBAL_MODEL_STATE = aggregate_params(GLOBAL_MODEL_STATE, local_state, alpha_eff)
++        GLOBAL_MODEL_STATE = aggregate_params(GLOBAL_MODEL_STATE, local_state, alpha_eff)
+         GLOBAL_MODEL_VERSION += 1
+ 
+         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+@@ -765,37 +853,62 @@ def upload_and_aggregate(sat_id: int, ckpt_path: str) -> str:
+-    try:
+-        if GLOBAL_MODEL_VERSION % max(1, EVAL_EVERY_N) == 0:
++    try:
++        if GLOBAL_MODEL_VERSION % max(1, EVAL_EVERY_N) == 0:
+             ds_val  = _get_eval_dataset("val")
+             ds_test = _get_eval_dataset("test")
+ 
+             calib_ds = ds_val or ds_test
+             if calib_ds is None:
+                 _log(f"[AGG] Global v{GLOBAL_MODEL_VERSION}: skipped eval (no dataset)")
+ 
+             else:
+                 # 1) BN 재보정 1회 (val 우선, 없으면 test)
+                 GLOBAL_MODEL_STATE = _bn_recalibrate(
+                     GLOBAL_MODEL_STATE, calib_ds,
+                     batches=int(os.getenv("FL_BN_CALIB_BATCHES","20")),
+                     bs=int(os.getenv("FL_EVAL_BS","256"))
+                 )
+                 # 2) 재보정 상태를 같은 ckpt에 반영 (재현성/시작점 일치)
+                 try:
+                     torch.save(GLOBAL_MODEL_STATE, out_path)
+                     torch.save(GLOBAL_MODEL_STATE, link_path)
+                 except Exception:
+                     pass
+ 
+                 _save_last_global_ptr(out_path, GLOBAL_MODEL_VERSION)
+ 
+                 # 3) split 별 별도 평가 (재보정은 유지하되 재보정 반복 X)
+-                def _eval_and_log(split, ds):
++                def _eval_and_log(split, ds):
+                     if ds is None: 
+                         _log(f"[AGG] Global v{GLOBAL_MODEL_VERSION} {split}: no dataset")
+                         return
++                    with EVAL_DONE_LOCK:
++                        key = (GLOBAL_MODEL_VERSION, split)
++                        if key in EVAL_DONE:
++                            return
+                     g_loss, g_acc, n, g_f1, g_madds, g_flops, g_lat = _evaluate_state_dict(
+                         GLOBAL_MODEL_STATE, ds, batch_size=EVAL_BS, device="cpu"
+                     )
+                     _log(f"[AGG] Global v{GLOBAL_MODEL_VERSION} {split}: acc={g_acc:.2f}% loss={g_loss:.4f} (n={n})")
+                     _log_global_metrics(
+                         GLOBAL_MODEL_VERSION, split, g_loss, g_acc, n, str(out_path),
+                         f1_macro=g_f1, madds_M=g_madds, flops_M=g_flops, latency_ms=g_lat
+                     )
++                    with EVAL_DONE_LOCK:
++                        EVAL_DONE.add((GLOBAL_MODEL_VERSION, split))
+ 
+                 _eval_and_log("val",  ds_val)
+                 _eval_and_log("test", ds_test)
+     except Exception as e:
+         logger.warning(f"[AGG] global evaluation failed: {e}")
+ 
+@@ -817,6 +930,10 @@ def do_local_training(
+     from torchvision.models import mobilenet_v3_small
+ 
++    # 수치 안정성/재현성
++    try:
++        import torch.backends.cudnn as cudnn; cudnn.benchmark = True
++    except Exception: pass
+     # ---- 하이퍼파라미터: 환경변수 -> 인자 -> 기본값 ----
+     EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND", "10")) if epochs is None else int(epochs)
+     LR     = float(os.getenv("FL_LR", "1e-3"))          if lr is None else float(lr)
+@@ -852,6 +969,7 @@ def do_local_training(
+     loader = DataLoader(
+         dataset,
+         batch_size=BS,
++        # 드물게 CPU 텐서 남는 일 방지: GPU일 때만 pin_memory
+         shuffle=True,
+         drop_last=False,
+         num_workers=DL_WORKERS,
+@@ -871,7 +989,9 @@ def do_local_training(
+ 
+     last_ckpt = None
+     n_total = len(dataset) if hasattr(dataset, "__len__") else None
++    bad_batches = 0
+ 
+     for ep in range(EPOCHS):
++        model.train(True)
+         if stop_event.is_set():
+             break
+ 
+@@ -879,13 +999,33 @@ def do_local_training(
+-        for images, labels in loader:
++        for images, labels in loader:
+             if stop_event.is_set():
+                 break
+-            images = images.to(device, non_blocking=True)
+-            labels = labels.to(device, non_blocking=True)
++            # 안전장치: 장치/dtype 정렬
++            if isinstance(images, (list, tuple)):
++                images = images[0]
++            images = images.to(device, non_blocking=True).contiguous()
++            labels = labels.to(device, non_blocking=True)
++            if labels.dtype != torch.long:
++                labels = labels.long()
+ 
+             optimizer.zero_grad(set_to_none=True)
+             outputs = model(images)
+             loss = criterion(outputs, labels)
+-            loss.backward()
+-            optimizer.step()
++            # NaN/Inf 방어
++            if torch.isnan(loss) or torch.isinf(loss):
++                bad_batches += 1
++                _log(f"SAT{sat_id}: skip bad batch (loss={loss.item()}) ep={ep}")
++                # LR 반감
++                for pg in optimizer.param_groups:
++                    pg["lr"] = max(1e-6, pg["lr"] * 0.5)
++                optimizer.zero_grad(set_to_none=True)
++                continue
++            loss.backward()
++            try:
++                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
++            except Exception:
++                pass
++            optimizer.step()
+ 
+             running_loss += float(loss.item())
+             _, pred = outputs.max(1)
+@@ -998,6 +1138,7 @@ async def initialize_simulation():
+     for sat_id, satellite in satellites.items():
+         subpoint = satellite.at(t).subpoint()
+         current_sat_positions[sat_id] = {
+             "lat": subpoint.latitude.degrees,
+             "lon": subpoint.longitude.degrees,
+         }
+         sat_comm_status[sat_id] = False
+         train_states[sat_id] = TrainState()
+@@ -1006,12 +1147,13 @@ async def initialize_simulation():
+-    try:
+-        meta = _load_last_local_ptr(sat_id)
+-        if meta and meta.get("path"):
+-            train_states[sat_id].last_ckpt_path = meta["path"]
+-            _log(f"[INIT] SAT{sat_id}: restored last local ckpt -> {meta['path']} (from_gv={meta.get('from_gver')})")
+-    except Exception as e:
+-        logger.warning(f"[INIT] restore local ptr failed (sat{sat_id}): {e}")
++    # 각 위성별 로컬 포인터 복원
++    try:
++        for _sid in satellites.keys():
++            meta = _load_last_local_ptr(_sid)
++            if meta and meta.get("path"):
++                train_states[_sid].last_ckpt_path = meta["path"]
++                _log(f"[INIT] SAT{_sid}: restored last local ckpt -> {meta['path']} (from_gv={meta.get('from_gver')})")
++    except Exception as e:
++        logger.warning(f"[INIT] restore local ptr failed: {_exc_repr(e)}")
+ 
+     # --- CIFAR-10 로드 & 위성별 가상 데이터셋 배정 ---
+     try:
+
