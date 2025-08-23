@@ -4,7 +4,7 @@ from typing import Any
 from pathlib import Path
 
 try:
-    from data import (
+    from ..data import (
         CIFAR_ROOT, ASSIGNMENTS_DIR, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT,
         DATA_REGISTRY, get_training_dataset,
     )

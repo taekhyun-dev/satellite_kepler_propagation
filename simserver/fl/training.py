@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, Future
 from torch.utils.data import DataLoader
 import torch, torch.nn as nn, torch.optim as optim
+import threading
 
 from ..core.logging import make_logger
 from ..core.paths import CKPT_DIR
@@ -12,7 +13,7 @@ from ..core.utils import get_env_int
 from .model import new_model_skeleton
 from .metrics import log_local_metrics
 from ..dataio.registry import get_training_dataset, DATA_REGISTRY, CIFAR_ROOT, ASSIGNMENTS_DIR, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
-from ..sim.sky import to_ts
+from ..sim.skyfiled import to_ts
 from ..sim.state import AppState, TrainState
 from .aggregate import parse_fromg, upload_and_aggregate
 

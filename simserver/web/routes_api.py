@@ -12,7 +12,7 @@ from ..dataio.registry import (
 from typing import List
 from pathlib import Path
 from collections import Counter
-from fl.aggregate import find_latest_global_ckpt
+from ..fl.aggregate import find_latest_global_ckpt
 
 router = APIRouter()
 
