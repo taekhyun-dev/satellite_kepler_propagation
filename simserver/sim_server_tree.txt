@@ -1,0 +1,152 @@
+.
+├── __pycache__
+│   ├── app.cpython-311.pyc
+│   ├── main.cpython-311.pyc
+│   └── sat_comm_server.cpython-311.pyc
+├── app.py
+├── ckpt
+│   ├── global_v0.ckpt
+│   ├── sat0_round0_ep0_20250811_174512.ckpt
+│   ├── sat0_round0_ep0_20250811_175305.ckpt
+│   ├── sat0_round0_ep0_20250811_180847.ckpt
+│   ├── sat0_round0_ep0_20250811_181039.ckpt
+│   ├── sat0_round0_ep0_20250811_181204.ckpt
+│   ├── sat0_round0_ep0_20250811_181555.ckpt
+│   ├── sat0_round0_ep1_20250811_174525.ckpt
+│   ├── sat0_round0_ep1_20250811_175323.ckpt
+│   ├── sat0_round0_ep1_20250811_180911.ckpt
+│   ├── sat0_round0_ep1_20250811_181105.ckpt
+│   ├── sat0_round0_ep1_20250811_181221.ckpt
+│   ├── sat0_round0_ep1_20250811_181618.ckpt
+│   ├── sat0_round0_ep2_20250811_174541.ckpt
+│   ├── sat0_round0_ep2_20250811_175335.ckpt
+│   ├── sat0_round0_ep2_20250811_180933.ckpt
+│   ├── sat0_round0_ep2_20250811_181249.ckpt
+│   ├── sat0_round0_ep2_20250811_181639.ckpt
+│   ├── sat0_round0_ep3_20250811_174552.ckpt
+│   ├── sat0_round0_ep3_20250811_175351.ckpt
+│   ├── sat0_round0_ep3_20250811_180958.ckpt
+│   ├── sat0_round0_ep3_20250811_181311.ckpt
+│   ├── sat0_round0_ep4_20250811_174603.ckpt
+│   ├── sat0_round0_ep4_20250811_175404.ckpt
+│   ├── sat0_round0_ep4_20250811_181332.ckpt
+│   ├── sat0_round0_ep5_20250811_174618.ckpt
+│   ├── sat0_round0_ep5_20250811_175425.ckpt
+│   ├── sat0_round0_ep6_20250811_174629.ckpt
+│   ├── sat0_round0_ep6_20250811_175438.ckpt
+│   ├── sat0_round0_ep7_20250811_174649.ckpt
+│   ├── sat0_round0_ep7_20250811_175450.ckpt
+│   ├── sat0_round0_ep8_20250811_174701.ckpt
+│   ├── sat0_round0_ep8_20250811_175505.ckpt
+│   ├── sat0_round0_ep9_20250811_174714.ckpt
+│   ├── sat0_round0_ep9_20250811_175517.ckpt
+│   ├── sat1_round0_ep0_20250811_174730.ckpt
+│   ├── sat1_round0_ep0_20250811_175533.ckpt
+│   ├── sat1_round0_ep1_20250811_174743.ckpt
+│   ├── sat1_round0_ep1_20250811_175545.ckpt
+│   ├── sat1_round0_ep2_20250811_174759.ckpt
+│   ├── sat1_round0_ep2_20250811_175557.ckpt
+│   ├── sat1_round0_ep3_20250811_174814.ckpt
+│   ├── sat1_round0_ep3_20250811_175612.ckpt
+│   ├── sat1_round0_ep4_20250811_174831.ckpt
+│   ├── sat1_round0_ep4_20250811_175625.ckpt
+│   ├── sat1_round0_ep5_20250811_174842.ckpt
+│   ├── sat1_round0_ep5_20250811_175637.ckpt
+│   ├── sat1_round0_ep6_20250811_174907.ckpt
+│   ├── sat1_round0_ep6_20250811_175654.ckpt
+│   ├── sat1_round0_ep7_20250811_174942.ckpt
+│   ├── sat1_round0_ep7_20250811_175709.ckpt
+│   ├── sat1_round0_ep8_20250811_175726.ckpt
+│   ├── sat1_round0_ep9_20250811_175738.ckpt
+│   ├── sat2_round0_ep0_20250811_175750.ckpt
+│   ├── sat2_round0_ep1_20250811_175806.ckpt
+│   ├── sat2_round0_ep2_20250811_175820.ckpt
+│   ├── sat2_round0_ep3_20250811_175837.ckpt
+│   ├── sat2_round0_ep4_20250811_175852.ckpt
+│   ├── sat2_round0_ep5_20250811_175908.ckpt
+│   ├── sat2_round0_ep6_20250811_175921.ckpt
+│   ├── sat2_round0_ep7_20250811_175934.ckpt
+│   ├── sat2_round0_ep8_20250811_175952.ckpt
+│   ├── sat2_round0_ep9_20250811_180004.ckpt
+│   ├── sat3_round0_ep0_20250811_180027.ckpt
+│   ├── sat3_round0_ep1_20250811_180041.ckpt
+│   ├── sat3_round0_ep2_20250811_180100.ckpt
+│   ├── sat3_round0_ep3_20250811_180114.ckpt
+│   ├── sat3_round0_ep4_20250811_180131.ckpt
+│   ├── sat3_round0_ep5_20250811_180146.ckpt
+│   ├── sat3_round0_ep6_20250811_180158.ckpt
+│   ├── sat3_round0_ep7_20250811_180213.ckpt
+│   ├── sat3_round0_ep8_20250811_180225.ckpt
+│   ├── sat3_round0_ep9_20250811_180240.ckpt
+│   ├── sat4_round0_ep0_20250811_180252.ckpt
+│   ├── sat4_round0_ep1_20250811_180304.ckpt
+│   ├── sat4_round0_ep2_20250811_180319.ckpt
+│   ├── sat4_round0_ep3_20250811_180331.ckpt
+│   ├── sat4_round0_ep4_20250811_180343.ckpt
+│   ├── sat4_round0_ep5_20250811_180357.ckpt
+│   ├── sat4_round0_ep6_20250811_180410.ckpt
+│   ├── sat4_round0_ep7_20250811_180427.ckpt
+│   ├── sat4_round0_ep8_20250811_180439.ckpt
+│   ├── sat4_round0_ep9_20250811_180452.ckpt
+│   ├── sat5_round0_ep0_20250811_180508.ckpt
+│   ├── sat5_round0_ep1_20250811_180521.ckpt
+│   ├── sat5_round0_ep2_20250811_180536.ckpt
+│   ├── sat5_round0_ep3_20250811_180550.ckpt
+│   ├── sat5_round0_ep4_20250811_180604.ckpt
+│   ├── sat5_round0_ep5_20250811_180620.ckpt
+│   ├── sat5_round0_ep6_20250811_180636.ckpt
+│   ├── sat5_round0_ep7_20250811_180702.ckpt
+│   └── sat5_round0_ep8_20250811_180727.ckpt
+├── core
+│   ├── config.py
+│   ├── features.py
+│   ├── gpu.py
+│   ├── hooks.py
+│   ├── logging.py
+│   ├── paths.py
+│   └── utils.py
+├── data
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-311.pyc
+│   │   ├── cifar_registry.cpython-311.pyc
+│   │   └── config.cpython-311.pyc
+│   ├── assignments
+│   │   └── assign_seed42_alpha0.3_spc2000.npz
+│   ├── cifar_data
+│   │   ├── cifar-10-batches-py
+│   │   │   ├── batches.meta
+│   │   │   ├── data_batch_1
+│   │   │   ├── data_batch_2
+│   │   │   ├── data_batch_3
+│   │   │   ├── data_batch_4
+│   │   │   ├── data_batch_5
+│   │   │   ├── readme.html
+│   │   │   └── test_batch
+│   │   └── cifar-10-python.tar.gz
+│   ├── cifar_registry.py
+│   └── config.py
+├── dataio
+│   └── registry.py
+├── eval_ckpts.py
+├── fl
+│   ├── aggregate.py
+│   ├── eval.py
+│   ├── metrics.py
+│   ├── model.py
+│   └── training.py
+├── fl_stability.patch
+├── main.py
+├── out.log
+├── sat_comm_client.py
+├── sat_comm_server.py
+├── sim
+│   ├── loop.py
+│   ├── skyfiled.py
+│   └── state.py
+├── sim_server_tree.txt
+└── web
+    ├── routes_api.py
+    └── routes_pages.py
+
+12 directories, 137 files
