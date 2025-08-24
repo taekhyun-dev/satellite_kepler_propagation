@@ -182,7 +182,7 @@ def upload_and_aggregate(ctx: AppState, sat_id: int, ckpt_path: str, *, n_sample
             return str(out_d)
 
         # ----- α_eff 계산 (staleness/샘플 수 반영 + 클램프)
-        ALPHA_BASE = float(os.getenv("FL_AGG_ALPHA", "0.05"))
+        ALPHA_BASE = float(os.getenv("FL_AGG_ALPHA", "0.2"))
         ALPHA_MIN  = float(os.getenv("FL_AGG_ALPHA_MIN", "0.01"))
         ALPHA_MAX  = float(os.getenv("FL_AGG_ALPHA_MAX", "0.08"))
         TAU        = float(os.getenv("FL_STALENESS_TAU", "1000"))
