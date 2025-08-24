@@ -1,17 +1,34 @@
 # simserver/fl/aggregate.py
-import os, re, json, time
-from datetime import datetime as _dt
+import os, re, json, math
+import torch
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional
 from ..core.paths import CKPT_DIR, LAST_GLOBAL_PTR
-from ..core.utils import get_env_float, get_env_int
 from ..core.logging import make_logger
 from .eval import evaluate_state_dict, bn_recalibrate
 from .metrics import log_global_metrics
+import copy
 from ..sim.state import AppState
 from ..dataio.registry import get_training_dataset
 
 logger = make_logger("simserver.agg")
+
+def _calc_norm(d, keys=None):
+    tot = 0.0
+    if keys is None: keys = d.keys()
+    for k in keys:
+        t = d[k]
+        if not torch.is_tensor(t): continue
+        t = t.float().view(-1)
+        tot += float(torch.dot(t, t).cpu())
+    return math.sqrt(max(tot, 0.0))
+
+def get_global_model_snapshot(ctx: AppState):
+    """(version, deepcopy(state_dict))를 원자적으로 반환"""
+    with ctx.GLOBAL_MODEL_LOCK:
+        ver = ctx.GLOBAL_MODEL_VERSION
+        state = copy.deepcopy(ctx.GLOBAL_MODEL_STATE)
+    return ver, state
 
 def parse_fromg(ckpt_path: str) -> Optional[int]:
     m = re.search(r"fromg(\d+)", os.path.basename(ckpt_path))
@@ -143,39 +160,101 @@ def init_global_model(ctx: AppState):
         save_last_global_ptr(init_path, 0)
         logger.info(f"[AGG] Initialized new global model at {init_path}")
 
-def upload_and_aggregate(ctx: AppState, sat_id: int, ckpt_path: str) -> str:
-    import torch
+def upload_and_aggregate(ctx: AppState, sat_id: int, ckpt_path: str, *, n_samples: int | None = None) -> str:
+    from collections import deque
     if not ckpt_path or not Path(ckpt_path).exists():
         raise FileNotFoundError(f"ckpt not found: {ckpt_path}")
 
     local_state = torch.load(ckpt_path, map_location="cpu")
+    if any(isinstance(k, str) and k.startswith("module.") for k in local_state.keys()):
+        local_state = {k.replace("module.", "", 1): v for k, v in local_state.items()}
+    
     with ctx.GLOBAL_MODEL_LOCK:
-        base_ver = parse_fromg(ckpt_path)
-        s = max(0, ctx.GLOBAL_MODEL_VERSION - (base_ver or ctx.GLOBAL_MODEL_VERSION))
-        if ctx.cfg.s_max_drop > 0 and s > ctx.cfg.s_max_drop:
-            logger.info(f"[AGG] drop stale update: s={s} (> {ctx.cfg.s_max_drop}) from {ckpt_path}")
-            return str(CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}.ckpt")
-
-        alpha_eff = alpha_for(ctx, sat_id, s)
-        if alpha_eff <= 0.0:
-            ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_path = CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}_{ts}.ckpt"
-            try: torch.save(ctx.GLOBAL_MODEL_STATE, out_path)
+        gver_before = ctx.GLOBAL_MODEL_VERSION
+        base_ver = parse_fromg(ckpt_path) or gver_before
+        staleness = max(0, gver_before - base_ver)
+        if ctx.cfg.s_max_drop > 0 and staleness > ctx.cfg.s_max_drop:
+            logger.info(f"[AGG] drop stale update: s={staleness} (> {ctx.cfg.s_max_drop}) from {ckpt_path}")
+            ts_d = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_d = CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}_{ts_d}.ckpt"
+            try: torch.save(ctx.GLOBAL_MODEL_STATE, out_d)
             except Exception: pass
-            return str(out_path)
+            return str(out_d)
 
-        ctx.GLOBAL_MODEL_STATE = aggregate_params(ctx.GLOBAL_MODEL_STATE, local_state, alpha_eff, ctx.cfg.bn_scale)
-        ctx.GLOBAL_MODEL_VERSION += 1
+        # ----- α_eff 계산 (staleness/샘플 수 반영 + 클램프)
+        ALPHA_BASE = float(os.getenv("FL_AGG_ALPHA", "0.05"))
+        ALPHA_MIN  = float(os.getenv("FL_AGG_ALPHA_MIN", "0.01"))
+        ALPHA_MAX  = float(os.getenv("FL_AGG_ALPHA_MAX", "0.08"))
+        TAU        = float(os.getenv("FL_STALENESS_TAU", "1000"))
+        W_MIN      = float(os.getenv("FL_STALENESS_W_MIN", "0.0"))
+        MEAN_SAMP  = float(os.getenv("FL_MEAN_CLIENT_SAMPLES", "2000"))
 
+        w_stale = max(W_MIN, math.exp(-staleness / max(TAU, 1e-9)))
+        alpha_eff = ALPHA_BASE * w_stale
+        if n_samples and n_samples > 0:
+            alpha_eff *= min(1.0, n_samples / max(MEAN_SAMP, 1.0))
+        alpha_eff = max(ALPHA_MIN, min(ALPHA_MAX, alpha_eff))
+
+        # ----- 키 매칭/미스매치 분석
+        g_state = ctx.GLOBAL_MODEL_STATE
+        g_keys = set(g_state.keys())
+        l_keys = set(local_state.keys())
+        matched = [k for k in l_keys if (k in g_keys and hasattr(g_state[k], "shape") and hasattr(local_state[k], "shape")
+                                         and g_state[k].shape == local_state[k].shape)]
+        miss_g = sorted(list(g_keys - set(matched)))
+        miss_l = sorted(list(l_keys - set(matched)))
+
+        # 델타 노름 (집계 전 진단용)
+        g_norm = _calc_norm(g_state, matched)
+        d_norm = _calc_norm({k: (local_state[k].float() - g_state[k].float()) for k in matched}, matched)
+
+        # ----- 실제 집계(매칭된 키만 가중합)
+        if alpha_eff > 0.0 and matched:
+            for k in matched:
+                g = g_state[k].float()
+                l = local_state[k].float()
+                g_state[k] = ((1.0 - alpha_eff) * g + alpha_eff * l).to(g.dtype)
+
+            ctx.GLOBAL_MODEL_STATE = g_state
+            ctx.GLOBAL_MODEL_VERSION += 1
+
+        # ----- 저장(타임스탬프 + 심볼릭 링크 역할 파일)
         ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}_{ts}.ckpt"
+        out_path  = CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}_{ts}.ckpt"
         link_path = CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}.ckpt"
         torch.save(ctx.GLOBAL_MODEL_STATE, out_path)
         try: torch.save(ctx.GLOBAL_MODEL_STATE, link_path)
         except Exception: pass
         save_last_global_ptr(out_path, ctx.GLOBAL_MODEL_VERSION)
 
-    # 평가/로깅
+        # ----- 집계 진단 로그 적재(최근 1000개 보관)
+        if not hasattr(ctx, "AGG_LOG"):
+            ctx.AGG_LOG = deque(maxlen=1000)
+        ctx.AGG_LOG.append({
+            "ts": ts,
+            "sat_id": int(sat_id),
+            "from_gver": int(base_ver),
+            "gver_before": int(gver_before),
+            "gver_after": int(ctx.GLOBAL_MODEL_VERSION),
+            "alpha_eff": float(alpha_eff),
+            "staleness": int(staleness),
+            "w_stale": float(w_stale),
+            "matched": int(len(matched)),
+            "miss_g": int(len(miss_g)),
+            "miss_l": int(len(miss_l)),
+            "rel_delta": float(d_norm / (g_norm + 1e-12)),
+            "ckpt": str(out_path),
+        })
+
+
+        logger.info(
+            f"AGG sat={sat_id} g:{gver_before}->{ctx.GLOBAL_MODEL_VERSION} "
+            f"from_g={base_ver} α_eff={alpha_eff:.4f} stl={staleness} "
+            f"match={len(matched)} miss(g,l)=({len(miss_g)},{len(miss_l)}) "
+            f"Δ‖W‖/‖W‖={ctx.AGG_LOG[-1]['rel_delta']:.3e} -> {out_path}"
+        )
+
+    # ----- 평가/로깅 (기존 로직 유지)
     try:
         if ctx.GLOBAL_MODEL_VERSION % max(1, ctx.cfg.eval_every_n) == 0:
             from .training import get_eval_dataset
@@ -185,7 +264,7 @@ def upload_and_aggregate(ctx: AppState, sat_id: int, ckpt_path: str) -> str:
             if calib_ds is not None:
                 ctx.GLOBAL_MODEL_STATE = bn_recalibrate(
                     ctx.GLOBAL_MODEL_STATE, calib_ds,
-                    batches=int(os.getenv("FL_BN_CALIB_BATCHES","20")),
+                    batches=int(os.getenv("FL_BN_CALIB_BATCHES","200")),
                     bs=ctx.cfg.eval_bs, num_classes=ctx.cfg.num_classes
                 )
                 try:
@@ -213,3 +292,7 @@ def upload_and_aggregate(ctx: AppState, sat_id: int, ckpt_path: str) -> str:
         logger.warning(f"[AGG] global eval failed: {e}")
 
     return str(out_path)
+
+async def upload_and_aggregate_async(ctx: AppState, sat_id: int, ckpt_path: str) -> str:
+    import asyncio
+    return await asyncio.to_thread(upload_and_aggregate, ctx, sat_id, ckpt_path)

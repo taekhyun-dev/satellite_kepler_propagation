@@ -23,6 +23,7 @@ class Settings:
     num_classes: int
     # staleness/aggregation
     agg_alpha: float
+    momentum: float
     staleness_tau: float
     staleness_mode: str
     w_min: float
@@ -62,15 +63,16 @@ def load_settings() -> Settings:
         real_interval_sec=float(os.getenv("FL_REAL_INTERVAL_SEC", "0.01")),
         sessions_per_gpu=sessions_per_gpu,
         max_train_workers=max_train_workers,
-        eval_every_n=get_env_int("FL_EVAL_EVERY_N", 2),
+        eval_every_n=get_env_int("FL_EVAL_EVERY_N", 1),
         eval_bs=get_env_int("FL_EVAL_BS", 1024),
         num_classes=get_env_int("FL_NUM_CLASSES", 10),
-        agg_alpha=get_env_float("FL_AGG_ALPHA", 0.25),
-        staleness_tau=get_env_float("FL_STALENESS_TAU", 14.0),
+        agg_alpha=get_env_float("FL_AGG_ALPHA", 0.05),
+        momentum=get_env_float("FL_SERVER_MOM", 0.9),
+        staleness_tau=get_env_float("FL_STALENESS_TAU", 1000),
         staleness_mode=os.getenv("FL_STALENESS_MODE", "exp"),
         w_min=get_env_float("FL_STALENESS_W_MIN", 0.0),
         s_max_drop=get_env_int("FL_STALENESS_MAX_DROP", 64),
-        alpha_max=get_env_float("FL_AGG_ALPHA_MAX", 0.5),
+        alpha_max=get_env_float("FL_AGG_ALPHA_MAX", 0.08),
         fresh_cutoff=get_env_int("FL_STALENESS_FRESH_CUTOFF", 40),
         bn_scale=get_env_float("FL_AGG_BN_SCALE", 0.1),
         num_gpus=resolved_gpus,

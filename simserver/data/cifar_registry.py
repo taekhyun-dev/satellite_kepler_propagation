@@ -3,14 +3,16 @@ import numpy as np
 from typing import Dict, List, Optional
 from pathlib import Path
 
+import os
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 
 try:
     import torchvision
     from torchvision.datasets import CIFAR10
+    from torchvision import transforms
 except Exception:
-    torchvision, CIFAR10 = None, None
+    torchvision, CIFAR10 = None, None, None
 
 from .config import CIFAR_ROOT, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
 
@@ -48,6 +50,11 @@ class CIFARDataRegistry:
         self.class_idx: Dict[int, np.ndarray] = {}
         self.client_idx: Dict[int, np.ndarray] = {}
         self.rng = np.random.default_rng(RNG_SEED)
+
+        # ↓ 평가용 캐시/스플릿
+        self._eval_split_ready = False
+        self._val_idx: Optional[np.ndarray] = None
+        self._test_idx: Optional[np.ndarray] = None
 
     def load_base(self, root: Path = CIFAR_ROOT, seed: int = RNG_SEED, download: bool = True):
         if torchvision is None or CIFAR10 is None:
@@ -124,9 +131,74 @@ class CIFARDataRegistry:
             return True
         return False
 
+    def _eval_transform(self):
+        """Resize + Normalize(transform) 생성"""
+        if transforms is None:
+            return None
+        img_size = int(os.getenv("FL_IMG_SIZE", "32"))
+        # 환경변수 우선, 없으면 CIFARSubsetDataset의 통계 사용
+        mean_env = os.getenv("FL_NORM_MEAN")
+        std_env  = os.getenv("FL_NORM_STD")
+        if mean_env and std_env:
+            mean = tuple(map(float, mean_env.split(",")))
+            std  = tuple(map(float, std_env.split(",")))
+        else:
+            mean = tuple(float(x) for x in CIFARSubsetDataset.MEAN.tolist())
+            std  = tuple(float(x) for x in CIFARSubsetDataset.STD.tolist())
+        return transforms.Compose([
+            transforms.Resize(img_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ])
+
+    def _ensure_eval_splits(self):
+        """CIFAR-10 test(10k)를 고정 시드로 val/test로 나눠 인덱스 캐시."""
+        if self._eval_split_ready or CIFAR10 is None:
+            return
+        ds = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True)
+        N = len(ds)  # 10000
+        val_frac = float(os.getenv("FL_VAL_FRACTION", "0.5"))
+        n_val = max(1, min(N - 1, int(N * val_frac)))
+        rng = np.random.default_rng(RNG_SEED)
+        idx = np.arange(N)
+        rng.shuffle(idx)
+        self._val_idx = idx[:n_val]
+        self._test_idx = idx[n_val:]
+        self._eval_split_ready = True
+
+    def get_validation_dataset(self) -> Optional[Dataset]:
+        """검증용 데이터셋 반환(없으면 None). 기본은 CIFAR-10 test의 절반 서브셋."""
+        if torchvision is None or CIFAR10 is None:
+            return None
+        self._ensure_eval_splits()
+        tfm = self._eval_transform()
+        ds_full = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
+        if self._val_idx is None:
+            # 스플릿 못 만들면 전체를 반환(최소 동작 보장)
+            return ds_full
+        return Subset(ds_full, self._val_idx.tolist())
+
+    def get_test_dataset(self) -> Optional[Dataset]:
+        """테스트용 데이터셋 반환(없으면 None). 기본은 CIFAR-10 test의 나머지 절반."""
+        if torchvision is None or CIFAR10 is None:
+            return None
+        self._ensure_eval_splits()
+        tfm = self._eval_transform()
+        ds_full = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
+        if self._test_idx is None:
+            # 스플릿 못 만들면 전체를 반환(최소 동작 보장)
+            return ds_full
+        return Subset(ds_full, self._test_idx.tolist())
+
 
 # ---- 전역 싱글톤 & 간편 훅 ----
 DATA_REGISTRY = CIFARDataRegistry()
 
 def get_training_dataset(sat_id: int) -> Dataset:
     return DATA_REGISTRY.get_dataset(sat_id)
+
+def get_validation_dataset() -> Optional[Dataset]:
+    return DATA_REGISTRY.get_validation_dataset()
+
+def get_test_dataset() -> Optional[Dataset]:
+    return DATA_REGISTRY.get_test_dataset()

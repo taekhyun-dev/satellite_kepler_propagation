@@ -12,10 +12,14 @@ from ..core.gpu import build_worker_gpu_list
 from ..core.utils import get_env_int
 from .model import new_model_skeleton
 from .metrics import log_local_metrics
-from ..dataio.registry import get_training_dataset, DATA_REGISTRY, CIFAR_ROOT, ASSIGNMENTS_DIR, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
+from ..dataio.registry import (
+    get_training_dataset, get_validation_dataset, get_test_dataset,
+    DATA_REGISTRY, CIFAR_ROOT, ASSIGNMENTS_DIR,
+    SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
+)
 from ..sim.skyfiled import to_ts
 from ..sim.state import AppState, TrainState
-from .aggregate import parse_fromg, upload_and_aggregate
+from .aggregate import parse_fromg, upload_and_aggregate, get_global_model_snapshot
 
 logger = make_logger("simserver.train")
 
@@ -79,15 +83,9 @@ def get_eval_dataset(ctx: AppState, split: str):
         logger.warning(f"[EVAL] DATA_REGISTRY.{split} failed: {e}")
     # 2) data module functions
     try:
-        import importlib
-        data_mod = importlib.import_module("data")
-        fn_name = "get_validation_dataset" if split=="val" else "get_test_dataset"
-        fn = getattr(data_mod, fn_name, None)
-        if callable(fn):
-            ds = fn()
-            if ds is not None:
-                ctx.EVAL_DS_CACHE[split] = ds
-                return ds
+        ds = get_validation_dataset() if split=="val" else get_test_dataset()
+        ctx.EVAL_DS_CACHE[split] = ds
+        return ds
     except Exception as e:
         logger.warning(f"[EVAL] data.{split} fallback failed: {e}")
     # 3) torchvision CIFAR10(test)
@@ -110,8 +108,8 @@ def get_eval_dataset(ctx: AppState, split: str):
 
 def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
                       *, epochs=None, lr=None, batch_size=None) -> str:
-    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","10")) if epochs is None else int(epochs)
-    LR     = float(os.getenv("FL_LR","1e-3"))           if lr is None else float(lr)
+    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","2")) if epochs is None else int(epochs)
+    LR     = float(os.getenv("FL_LR","0.05"))           if lr is None else float(lr)
     BS     = int(os.getenv("FL_BATCH_SIZE","128"))      if batch_size is None else int(batch_size)
     NUM_CLASSES = ctx.cfg.num_classes
 
@@ -120,6 +118,7 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
 
     model = new_model_skeleton(NUM_CLASSES)
     start_gver = ctx.GLOBAL_MODEL_VERSION
+
     resumed = False
     try:
         meta = load_last_local_ptr(sat_id)
@@ -134,6 +133,17 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
     except Exception as e:
         logger.info(f"SAT{sat_id}: no local resume; use global. err={e}")
 
+    # resume를 못했으면 글로벌 스냅샷에서 시작
+    if not resumed:
+        try:
+            gver, gstate = get_global_model_snapshot(ctx)
+            if gstate:
+                model.load_state_dict(gstate, strict=False)
+                start_gver = int(gver)
+                logger.info(f"SAT{sat_id}: init from global v{gver}")
+        except Exception as e:
+            logger.warning(f"SAT{sat_id}: failed to load global snapshot: {e}")
+
     model.to(device).train()
     dataset = get_training_dataset(sat_id)
     pin = torch.cuda.is_available() and ctx.cfg.dataloader_workers > 0
@@ -142,7 +152,7 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
                         persistent_workers=(ctx.cfg.dataloader_workers>0))
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=LR)
+    optimizer = optim.SGD(model.parameters(), lr=LR)
     clip_norm = float(os.getenv("FL_CLIP_NORM","1.0"))
     max_bad_skips = int(os.getenv("FL_MAX_BAD_BATCH_SKIPS","20"))
 
@@ -228,34 +238,38 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
 # --- Worker orchestration ---
 
 async def train_worker(ctx: AppState, gpu_id: Optional[int]):
-    loop = asyncio.get_running_loop()
-    while True:
-        sat_id = await ctx.train_queue.get()
-        st = ctx.train_states[sat_id]
-        st.in_queue = False
-        if st.running:
-            ctx.train_queue.task_done()
-            continue
-        st.stop_event.clear()
-        st.gpu_id = gpu_id
-        st.running = True
+    try:
+        loop = asyncio.get_running_loop()
+        while True:
+            sat_id = await ctx.train_queue.get()
+            st = ctx.train_states[sat_id]
+            st.in_queue = False
+            if st.running:
+                ctx.train_queue.task_done()
+                continue
+            st.stop_event.clear()
+            st.gpu_id = gpu_id
+            st.running = True
 
-        def _job():
-            return do_local_training(ctx, sat_id=sat_id, stop_event=st.stop_event, gpu_id=gpu_id)
+            def _job():
+                return do_local_training(ctx, sat_id=sat_id, stop_event=st.stop_event, gpu_id=gpu_id)
 
-        fut = loop.run_in_executor(ctx.training_executor, _job)
-        st.future = fut
-        try:
-            ckpt = await fut
-        except Exception as e:
-            tb = traceback.format_exc()
-            logger.error(f"SAT{sat_id}: training ERROR: {e}\n{tb}")
-            ckpt = None
-        finally:
-            st.last_ckpt_path = ckpt
-            st.running = False
-            logger.info(f"SAT{sat_id}: training DONE (gpu={gpu_id}), ckpt={ckpt}")
-            ctx.train_queue.task_done()
+            fut = loop.run_in_executor(ctx.training_executor, _job)
+            st.future = fut
+            try:
+                ckpt = await fut
+            except Exception as e:
+                tb = traceback.format_exc()
+                logger.error(f"SAT{sat_id}: training ERROR: {e}\n{tb}")
+                ckpt = None
+            finally:
+                st.last_ckpt_path = ckpt
+                st.running = False
+                logger.info(f"SAT{sat_id}: training DONE (gpu={gpu_id}), ckpt={ckpt}")
+                ctx.train_queue.task_done()
+    except asyncio.CancelledError:
+        logger.info("[TRAIN] worker cancelled")
+        raise
 
 def enqueue_training(ctx: AppState, sat_id: int):
     st = ctx.train_states[sat_id]
@@ -272,26 +286,41 @@ def on_become_visible(ctx: AppState, sat_id: int):
         ck = ctx.train_states[sat_id].last_ckpt_path
         if ck:
             try:
-                upload_and_aggregate(ctx, sat_id, ck)
+                n = None
+                try:
+                    n = len(get_training_dataset(sat_id))
+                except Exception:
+                    pass
+                new_global = upload_and_aggregate(ctx, sat_id, ck, n_samples=n)   # 무거운 작업: 별도 스레드에서 수행
+                logger.info(f"SAT{sat_id}: aggregated -> {new_global}")
             except Exception as e:
                 logger.error(f"SAT{sat_id}: upload/aggregate ERROR: {e}")
+
     if st.running and st.future:
         st.stop_event.set()
-        def _cb(_fut):
-            try: _fut.result()
-            except Exception: pass
-            _upload_job()
-        try: st.future.add_done_callback(_cb)
+        def _cb(_fut: Future):
+            try:
+                _fut.result()   # 예외 소거
+            except Exception:
+                pass
+            # ★ 업로드/집계는 업로더 풀에서 실행
+            ctx.uploader_executor.submit(_upload_job)
+        try:
+            st.future.add_done_callback(_cb)
         except Exception:
-            try: asyncio.ensure_future(st.future).add_done_callback(_cb)
-            except Exception: pass
+            # 일부 런타임에서 add_done_callback가 타입 이슈나면 우회
+            def _safe():
+                try:
+                    _cb(st.future)
+                except Exception:
+                    pass
+            ctx.training_executor.submit(_safe)
     else:
-        _upload_job()
+        ctx.uploader_executor.submit(_upload_job)
 
 def start_executors_and_workers(ctx: AppState):
     ctx.training_executor = ThreadPoolExecutor(max_workers=ctx.cfg.max_train_workers)
-    from concurrent.futures import ThreadPoolExecutor as TPE
-    ctx.uploader_executor = TPE(max_workers=4)
+    ctx.uploader_executor = ThreadPoolExecutor(max_workers=4)
     ctx.train_queue = asyncio.Queue(maxsize=int(os.getenv("FL_QUEUE_MAX","1000")))
     for gid in build_worker_gpu_list(ctx.cfg.num_gpus, ctx.cfg.sessions_per_gpu):
         asyncio.create_task(train_worker(ctx, gid))

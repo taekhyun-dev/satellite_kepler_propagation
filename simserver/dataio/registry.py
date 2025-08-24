@@ -6,7 +6,7 @@ from pathlib import Path
 try:
     from ..data import (
         CIFAR_ROOT, ASSIGNMENTS_DIR, SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT,
-        DATA_REGISTRY, get_training_dataset,
+        DATA_REGISTRY, get_training_dataset, get_validation_dataset, get_test_dataset,
     )
 except Exception as e:
     raise ImportError("data module not found or incomplete") from e

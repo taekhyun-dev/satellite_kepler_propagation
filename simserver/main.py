@@ -13,6 +13,7 @@ def main():
         log_level=os.getenv("LOG_LEVEL", "debug"),   # ← 디버그
         access_log=True,                              # ← 액세스 로그
         proxy_headers=True,                           # 프록시/컨테이너에서 유용
+        timeout_graceful_shutdown=int(os.getenv("GRACEFUL_TIMEOUT", "15")),
     )
 
 if __name__ == "__main__":

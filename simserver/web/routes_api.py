@@ -1,6 +1,6 @@
 # simserver/web/routes_api.py
 import time
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from ..sim.state import AppState
@@ -20,18 +20,18 @@ def _ctx(request) -> AppState:
     return request.app.state.ctx  # set in app.py
 
 @router.post("/api/reset_time", tags=["API"])
-def reset_sim_time(request):
+def reset_sim_time(request: Request):
     ctx = _ctx(request)
     ctx.sim_time = datetime.fromisoformat(ctx.cfg.start_time_iso)
     return {"status": "reset", "sim_time": ctx.sim_time.isoformat()}
 
 @router.get("/api/sim_time", tags=["API"])
-def get_sim_time_api(request):
+def get_sim_time_api(request: Request):
     ctx = _ctx(request)
     return {"sim_time": ctx.sim_time.isoformat()}
 
 @router.put("/api/sim_time", tags=["API"])
-def set_sim_time(request, year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0):
+def set_sim_time(request: Request, year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0):
     ctx = _ctx(request)
     try:
         ctx.sim_time = datetime(year, month, day, hour, minute, second)
@@ -40,7 +40,7 @@ def set_sim_time(request, year: int, month: int, day: int, hour: int = 0, minute
         return {"error": str(e)}
 
 @router.put("/api/set_step", tags=["API"])
-def set_step(request, delta_sec: float = Query(...), interval_sec: float = Query(...)):
+def set_step(request: Request, delta_sec: float = Query(...), interval_sec: float = Query(...)):
     ctx = _ctx(request)
     if delta_sec <= 0 or interval_sec < 0:
         return {"error": "delta_sec>0, interval_sec>=0"}
@@ -49,7 +49,7 @@ def set_step(request, delta_sec: float = Query(...), interval_sec: float = Query
     return {"sim_delta_sec": ctx.sim_delta_sec, "real_interval_sec": ctx.real_interval_sec}
 
 @router.get("/api/trajectory", tags=["API"])
-def get_trajectory(request, sat_id: int = Query(...)):
+def get_trajectory(request: Request, sat_id: int = Query(...)):
     ctx = _ctx(request)
     if sat_id not in ctx.satellites:
         return {"error": f"sat_id {sat_id} not found"}
@@ -67,14 +67,14 @@ def get_trajectory(request, sat_id: int = Query(...)):
     return {"sat_id": sat_id, "segments": segments}
 
 @router.get("/api/position", tags=["API"])
-def get_position(request, sat_id: int = Query(...)):
+def get_position(request: Request, sat_id: int = Query(...)):
     ctx = _ctx(request)
     if sat_id not in ctx.current_sat_positions:
         return {"error": f"Position for SAT{sat_id} not available"}
     return ctx.current_sat_positions[sat_id]
 
 @router.get("/api/comm_targets", tags=["API"])
-def get_comm_targets(request, sat_id: int = Query(...)):
+def get_comm_targets(request: Request, sat_id: int = Query(...)):
     ctx = _ctx(request)
     if sat_id not in ctx.satellites:
         return {"error": f"sat_id {sat_id} not found"}
@@ -86,7 +86,7 @@ def get_comm_targets(request, sat_id: int = Query(...)):
             "visible_ground_stations": visible_ground, "visible_iot_clusters": visible_iot}
 
 @router.get("/api/gs/visibility", tags=["API/GS"])
-def get_gs_visibility(request):
+def get_gs_visibility(request: Request):
     ctx = _ctx(request)
     result = {}
     t_ts = to_ts(ctx.sim_time)
@@ -100,7 +100,7 @@ def get_gs_visibility(request):
     return {"sim_time": ctx.sim_time.isoformat(), "data": result}
 
 @router.get("/api/gs/visibility_schedule", tags=["API/GS"])
-def get_visibility_schedule(request, sat_id: int = Query(...)):
+def get_visibility_schedule(request: Request, sat_id: int = Query(...)):
     """
     특정 위성의 관측 가능 시간대를 반환하는 API
     """
@@ -133,7 +133,7 @@ def get_visibility_schedule(request, sat_id: int = Query(...)):
     return {"sim_time": ctx.sim_time.isoformat(), "sat_id": sat_id, "schedule": results}
 
 @router.get("/api/gs/next_comm", tags=["API/GS"])
-def get_next_comm_for_sat(request, sat_id: int = Query(..., description="위성 ID")):
+def get_next_comm_for_sat(request: Request, sat_id: int = Query(..., description="위성 ID")):
     """
     주어진 sat_id 위성이 다음에 통신 가능한 지상국과 시간(시뮬레이션 시간)을 반환하는 API
     """
@@ -155,7 +155,7 @@ def get_next_comm_for_sat(request, sat_id: int = Query(..., description="위성 
     return {"sat_id": sat_id, "next_comm_time": None, "message": "다음 24시간 내 통신 창 없음"}
 
 @router.get("/api/gs/next_comm_all", tags=["API/GS"])
-def get_next_comm_all(request):
+def get_next_comm_all(request: Request):
     """
     모든 위성에 대해 다음 통신 가능 시간(지상국, 시뮬레이션 시간)을 반환하는 API
     """
@@ -184,7 +184,7 @@ def get_next_comm_all(request):
     return {"sim_time": ctx.sim_time.isoformat(), "next_comm": result}
 
 @router.put("/api/observer", tags=["API/Observer"])
-def set_observer(request, name: str = Query(...)):
+def set_observer(request: Request, name: str = Query(...)):
     """
     지상국 관측 위치를 설정하는 API
     """
@@ -199,7 +199,7 @@ def set_observer(request, name: str = Query(...)):
 
 
 @router.get("/api/observer/check_comm", tags=["API/Observer"])
-def get_observer_check_comm(request, sat_id: int = Query(...)):
+def get_observer_check_comm(request: Request, sat_id: int = Query(...)):
     """
     위성 통신 가능 여부를 확인하는 API
     """
@@ -210,7 +210,7 @@ def get_observer_check_comm(request, sat_id: int = Query(...)):
 
 
 @router.get("/api/observer/all_visible", tags=["API/Observer"])
-def get_all_visible(request):
+def get_all_visible(request: Request):
     """
     현재 시뮬레이션 시간에 지상국(observer)에서 관측 가능한 모든 위성의 ID를 반환하는 API
     """
@@ -221,7 +221,7 @@ def get_all_visible(request):
 
 
 @router.get("/api/observer/visible_count", tags=["API/Observer"])
-def get_visible_count(request):
+def get_visible_count(request: Request):
     """
     현재 시뮬레이션 시간에 지상국(observer)에서 관측 가능한 위성의 개수를 반환하는 API
     """
@@ -232,7 +232,7 @@ def get_visible_count(request):
 
 
 @router.get("/api/observer/elevation", tags=["API/Observer"])
-def get_elevation(request, sat_id: int = Query(...)):
+def get_elevation(request: Request, sat_id: int = Query(...)):
     """
     특정 위성의 현재 시뮬레이션 시간에 대한 지상국과의 고도를 반환하는 API
     """
@@ -246,7 +246,7 @@ def get_elevation(request, sat_id: int = Query(...)):
 
 
 @router.get("/api/observer/next_comm", tags=["API/Observer"])
-def get_next_comm_with_observer(request, sat_id: int = Query(..., description="위성 ID")):
+def get_next_comm_with_observer(request: Request, sat_id: int = Query(..., description="위성 ID")):
     """
     주어진 sat_id 위성이 현재 observer와 다음에 통신 가능한 시간을 반환하는 API
     """
@@ -267,7 +267,7 @@ def get_next_comm_with_observer(request, sat_id: int = Query(..., description="�
 
 
 @router.get("/api/observer/next_comm_all", tags=["API/Observer"])
-def get_next_comm_all_with_observer(request):
+def get_next_comm_all_with_observer(request: Request):
     """
     모든 위성에 대해 현재 observer 와의 다음 통신 가능한 시간을 반환하는 API
     """
@@ -291,7 +291,7 @@ def get_next_comm_all_with_observer(request):
 
 
 @router.get("/api/iot_clusters/position", tags=["API/IoT"])
-def get_iot_clusters_position(request):
+def get_iot_clusters_position(request: Request):
     """
     IoT 클러스터의 위치 정보를 반환하는 API
     """
@@ -304,7 +304,7 @@ def get_iot_clusters_position(request):
 
 
 @router.get("/api/iot_clusters/visibility_schedule", tags=["API/IoT"])
-def get_iot_clusters_visibility(request, sat_id: int = Query(...)):
+def get_iot_clusters_visibility(request: Request, sat_id: int = Query(...)):
     """
     특정 위성이 IoT 클러스터에서 관측 가능한지 여부와 관측 가능 시간대를 반환하는 API
     """
@@ -338,7 +338,7 @@ def get_iot_clusters_visibility(request, sat_id: int = Query(...)):
 
 @router.get("/api/iot_clusters/visible", tags=["API/IoT"])
 def get_iot_clusters_visible(
-    request,
+    request: Request,
     sat_id: Optional[int] = Query(None, description="위성 ID"),
     iot_name: Optional[str] = Query(None, description="IoT 클러스터 이름")
 ):
@@ -372,7 +372,7 @@ def get_iot_clusters_visible(
 
 
 @router.get("/api/iot_clusters/visible_count", tags=["API/IoT"])
-def get_iot_clusters_visible_count(request, iot_name: str = Query(...)):
+def get_iot_clusters_visible_count(request: Request, iot_name: str = Query(...)):
     """
     특정 IoT 클러스터에서 관측 가능한 위성의 개수를 반환하는 API
     """
@@ -387,7 +387,7 @@ def get_iot_clusters_visible_count(request, iot_name: str = Query(...)):
 
 @router.get("/api/data/summary", tags=["API/Data"])
 def get_data_summary(
-    request,
+    request: Request,
     detail: bool = Query(False, description="위성(클라이언트)별 상세 목록 포함"),
     histogram: bool = Query(False, description="위성별 클래스 분포 포함(10 클래스)"),
     limit: int = Query(20, ge=1, le=1000, description="detail=false일 때 나열할 위성 수"),
@@ -484,7 +484,7 @@ def get_data_summary(
     return result
 
 @router.get("/api/model/global", tags=["API/Model"])
-def get_global_model_info(request, detail: bool = Query(False, description="모든 글로벌 체크포인트 목록/메타데이터 포함")):
+def get_global_model_info(request: Request, detail: bool = Query(False, description="모든 글로벌 체크포인트 목록/메타데이터 포함")):
     """
     글로벌 모델의 현재 버전/경로를 조회합니다.
     - version: GLOBAL_MODEL_VERSION (초기화 전이면 -1)
@@ -550,3 +550,13 @@ def get_global_model_version():
     """
     version = globals().get("GLOBAL_MODEL_VERSION", -1)
     return {"version": int(version)}
+
+
+@router.get("/api/agg_stats")
+def agg_stats(request: Request, limit: int = 50):
+    ctx = request.app.state.ctx
+    items = list(getattr(ctx, "AGG_LOG", []))
+    return {
+        "global_version": int(ctx.GLOBAL_MODEL_VERSION),
+        "items": items[-int(limit):]
+    }
