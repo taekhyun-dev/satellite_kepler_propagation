@@ -9,6 +9,7 @@ class Settings:
     # sim
     default_dl_workers: int
     dataloader_workers: int
+    sim_paused: bool
     threshold_deg: float
     start_time_iso: str
     sim_delta_sec: float

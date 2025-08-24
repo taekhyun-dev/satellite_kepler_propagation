@@ -28,6 +28,13 @@ def create_app() -> FastAPI:
         # === startup ===
         app.state.ctx = ctx
         app.state.tasks = []
+        sim_task = asyncio.create_task(run_simulation_loop(ctx), name="simulation_loop")
+
+
+        def _report_task(t: asyncio.Task):
+            exc = t.exception()
+            if exc:
+                logger.exception("Background task crashed: %s", exc)
 
         # 1) TLE load
         try:
@@ -79,6 +86,9 @@ def create_app() -> FastAPI:
 
         # 5) 시뮬레이션 루프 시작(백그라운드 태스크로 구동)
         try:
+            sim_task.add_done_callback(_report_task)
+            app.state.tasks.append(sim_task)
+
             sim_task = asyncio.create_task(run_simulation_loop(ctx), name="simulation_loop")
             app.state.tasks.append(sim_task)
         except Exception as e:

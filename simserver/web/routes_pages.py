@@ -399,4 +399,154 @@ def iot_clusters_ui(request: Request):
         <style>
             body {{ font-family: Arial; margin: 2em; }}
             table {{ border-collapse: collapse; width: 60%; }}
-            th, td {{ bord
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+            #map {{ height: 500px; margin-top: 30px; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>📡 IoT Cluster Locations</h1>
+        <table>
+            <tr><th>Name</th><th>Latitude</th><th>Longitude</th></tr>
+            {''.join(rows)}
+        </table>
+        <hr/>
+        <div id="map"></div>
+        <script>
+            var map = L.map('map', {{
+                center: [0, 0],
+                zoom: 2,
+                worldCopyJump: false,
+                maxBounds: [[-85, -180], [85, 180]],
+                maxBoundsViscosity: 1.0,
+                inertia: false
+            }});
+            L.tileLayer('https://{{{{s}}}}.tile.openstreetmap.org/{{{{z}}}}/{{{{x}}}}/{{{{y}}}}.png', {{
+                maxZoom: 18,
+                attribution: '© OpenStreetMap contributors'
+            }}).addTo(map);
+
+            const clusters = {raw_json};
+            for (let [name, loc] of Object.entries(clusters)) {{
+                const lat = loc.latitude;
+                const lon = loc.longitude;
+                const marker = L.circleMarker([lat, lon], {{ radius: 5, color: 'blue' }}).addTo(map);
+                marker.bindTooltip(name, {{
+                    permanent: true,
+                    direction: 'top',
+                    className: 'iot-tooltip'
+                }});
+            }}
+        </script>
+    </body>
+    </html>
+    """
+
+# -------------------- IoT Visibility --------------------
+@router.get("/iot_visibility", response_class=HTMLResponse, tags=["PAGE"])
+def iot_visibility(request: Request):
+    ctx = _ctx(request)
+    iot_sections = []
+    t_ts = to_ts(ctx.sim_time)
+    for name, iot in ctx.iot_clusters.items():
+        rows = []
+        for sid, sat in ctx.satellites.items():
+            alt, az, dist = (sat - iot).at(t_ts).altaz()
+            if alt.degrees >= ctx.threshold_deg:
+                rows.append(f'<tr><td>{sid}</td><td>{alt.degrees:.2f}°</td></tr>')
+        table_html = f"""
+        <h2>{name}</h2>
+        <table>
+            <tr><th>Sat ID</th><th>Elevation</th></tr>
+            {''.join(rows)}
+        </table>
+        """
+        iot_sections.append(table_html)
+
+    return f"""
+    <html>
+    <head>
+        <title>IOT Visibility</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; background: #f2f2f2; margin: 2em; }}
+            h2 {{ margin-top: 2em; }}
+            table {{ border-collapse: collapse; width: 60%; margin-bottom: 2em; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: center; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>🌐 IOT-wise Visible Satellites</h1>
+        <p><b>Sim Time:</b> {ctx.sim_time.isoformat()}</p>
+        <hr>
+        {''.join(iot_sections)}
+    </body>
+    </html>
+    """
+
+# -------------------- Comm Targets List --------------------
+@router.get("/comm_targets/lists", response_class=HTMLResponse, tags=["PAGE"])
+def comm_targets_list(request: Request):
+    ctx = _ctx(request)
+    links = [f'<li><a href="/comm_targets?sat_id={sid}">SAT{sid} Targets</a></li>' for sid in sorted(ctx.satellites)]
+    return f"""
+    <html>
+    <head>
+        <title>Comm Targets List</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            ul {{ list-style-type: none; padding: 0; }}
+            li {{ margin-bottom: 5px; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/dashboard">← Back to Dashboard</a></p>
+        <h1>🚀 Satellite Comm Targets</h1>
+        <ul>
+            {''.join(links)}
+        </ul>
+    </body>
+    </html>
+    """
+
+# -------------------- Comm Targets (detail) --------------------
+@router.get("/comm_targets", response_class=HTMLResponse, tags=["PAGE"])
+def comm_targets_detail(request: Request, sat_id: int = Query(..., description="위성 ID")):
+    ctx = _ctx(request)
+    if sat_id not in ctx.satellites:
+        return HTMLResponse(f"<p style='color:red;'>Error: sat_id {sat_id} not found</p>", status_code=404)
+
+    t_ts = to_ts(ctx.sim_time)
+    sat = ctx.satellites[sat_id]
+    visible_ground = [name for name, gs in ctx.observer_locations.items()
+                      if elevation_deg(sat, gs, t_ts) >= ctx.threshold_deg]
+    visible_iot = [name for name, cluster in ctx.iot_clusters.items()
+                   if elevation_deg(sat, cluster, t_ts) >= ctx.threshold_deg]
+
+    rows_ground = ''.join(f"<tr><td>{gs}</td></tr>" for gs in visible_ground) or '<tr><td>None</td></tr>'
+    rows_iot    = ''.join(f"<tr><td>{ci}</td></tr>" for ci in visible_iot) or '<tr><td>None</td></tr>'
+
+    return f"""
+    <html>
+    <head>
+        <title>Comm Targets for SAT{sat_id}</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{ font-family: Arial; margin: 2em; }}
+            table {{ border-collapse: collapse; width: 40%; margin-top: 1em; }}
+            th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+        </style>
+    </head>
+    <body>
+        <p><a href="/comm_targets/lists">← Back to Comm Targets List</a></p>
+        <h1>📡 Comm Targets for SAT{sat_id}</h1>
+        <p><b>Sim Time:</b> {ctx.sim_time.isoformat()}</p>
+        <h2>Visible Ground Stations</h2>
+        <table><tr><th>Station</th></tr>{rows_ground}</table>
+        <h2>Visible IoT Clusters</h2>
+        <table><tr><th>Cluster</th></tr>{rows_iot}</table>
+    </body>
+    </html>
+    """

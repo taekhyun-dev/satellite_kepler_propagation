@@ -30,6 +30,7 @@ class AppState:
     # sim
     sim_time: datetime
     sim_delta_sec: float
+    sim_paused: bool
     real_interval_sec: float
     threshold_deg: float
     satellites: Dict[int, EarthSatellite] = field(default_factory=dict)
@@ -96,6 +97,7 @@ def build_initial_state(cfg: Settings) -> AppState:
 
     st = AppState(
         cfg=cfg,
+        sim_paused=False,
         sim_time=start,
         sim_delta_sec=cfg.sim_delta_sec,
         real_interval_sec=cfg.real_interval_sec,
