@@ -108,8 +108,8 @@ def get_eval_dataset(ctx: AppState, split: str):
 
 def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
                       *, epochs=None, lr=None, batch_size=None) -> str:
-    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","1")) if epochs is None else int(epochs)
-    LR     = float(os.getenv("FL_LR","0.001"))           if lr is None else float(lr)
+    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","2")) if epochs is None else int(epochs)
+    LR     = float(os.getenv("FL_LR","1e-3"))           if lr is None else float(lr)
     BS     = int(os.getenv("FL_BATCH_SIZE","128"))      if batch_size is None else int(batch_size)
     NUM_CLASSES = ctx.cfg.num_classes
 
@@ -152,7 +152,7 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
                         persistent_workers=(ctx.cfg.dataloader_workers>0))
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=LR, momentum=0.9)
+    optimizer = optim.Adam(model.parameters(), lr=LR)
     clip_norm = float(os.getenv("FL_CLIP_NORM","1.0"))
     max_bad_skips = int(os.getenv("FL_MAX_BAD_BATCH_SKIPS","20"))
 
@@ -291,6 +291,7 @@ def on_become_visible(ctx: AppState, sat_id: int):
                     n = len(get_training_dataset(sat_id))
                 except Exception:
                     pass
+                # --- NOTE/INFO: n_samples를 집계에 전달하여 alpha 스케일 기대/관측을 정렬 ---
                 new_global = upload_and_aggregate(ctx, sat_id, ck, n_samples=n)   # 무거운 작업: 별도 스레드에서 수행
                 logger.info(f"SAT{sat_id}: aggregated -> {new_global}")
             except Exception as e:

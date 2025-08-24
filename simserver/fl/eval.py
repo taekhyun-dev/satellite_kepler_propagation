@@ -1,7 +1,6 @@
 # simserver/fl/eval.py
 import os, time
-from typing import Optional, Tuple
-from ..core.utils import get_env_int
+from typing import Optional
 
 def evaluate_state_dict(state_dict: dict, dataset, batch_size: int = 512, device: str = "cpu",
                         num_classes: int = 10):
