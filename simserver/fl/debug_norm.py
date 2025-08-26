@@ -6,6 +6,18 @@ from torch.utils.data import DataLoader
 # 내부 레지스트리/훅들
 from ..dataio.registry import get_training_dataset, get_validation_dataset, get_test_dataset, CIFAR_ROOT
 from .training import get_eval_dataset  # 이미 있는 함수 재사용
+from ..core.logging import make_logger
+
+logger = make_logger("simserver.debug_norm")
+
+def _log(msg: str):
+    """print + logger 동시에. FL_DEBUG_NORM_STDOUT=0이면 콘솔 출력 생략."""
+    try:
+        logger.info(msg)
+    except Exception:
+        pass
+    if os.getenv("FL_DEBUG_NORM_STDOUT", "1") == "1":
+        print(msg)
 
 def _find_normalize_in_transform(tfm):
     """torchvision transform(또는 Compose) 안에서 Normalize(mean,std) 추출."""
@@ -127,9 +139,9 @@ def log_norm_consistency(ctx, sat_id: int, split: str = "val", batch_size: int =
     t_src, t_mean, t_std = _detect_effective_norm_from_dataset(train_ds)
     e_src, e_mean, e_std = _detect_effective_norm_from_dataset(eval_ds)
 
-    print("=== Intended (configured) normalization ===")
-    print(f"[TRAIN] source={t_src} mean={t_mean} std={t_std}")
-    print(f"[EVAL ] source={e_src} mean={e_mean} std={e_std}")
+    _log("=== Intended (configured) normalization ===")
+    _log(f"[TRAIN] source={t_src} mean={t_mean} std={t_std}")
+    _log(f"[EVAL ] source={e_src} mean={e_mean} std={e_std}")
 
     same_config = (t_mean is not None and e_mean is not None and
                    t_std is not None and e_std is not None and
@@ -141,9 +153,9 @@ def log_norm_consistency(ctx, sat_id: int, split: str = "val", batch_size: int =
     t_m, t_s = _channel_stats_from_loader(train_ds, batch_size=batch_size, max_batches=2)
     e_m, e_s = _channel_stats_from_loader(eval_ds , batch_size=batch_size, max_batches=2)
 
-    print("\n=== Observed (on-sample) channel stats ===")
-    print(f"[TRAIN] mean≈{t_m} std≈{t_s}")
-    print(f"[EVAL ] mean≈{e_m} std≈{e_s}")
+    _log("\n=== Observed (on-sample) channel stats ===")
+    _log(f"[TRAIN] mean≈{t_m} std≈{t_s}")
+    _log(f"[EVAL ] mean≈{e_m} std≈{e_s}")
 
     observed_close = False
     if t_m is not None and e_m is not None and t_s is not None and e_s is not None:
@@ -152,15 +164,15 @@ def log_norm_consistency(ctx, sat_id: int, split: str = "val", batch_size: int =
             all(abs(t_s[i] - e_s[i]) <= 0.25 for i in range(3))      # 표준편차는 대략 1±0.25 정도면 충분
         )
 
-    print("\n=== Verdict ===")
+    _log("\n=== Verdict ===")
     if same_config and observed_close:
-        print("✔ 학습과 평가 경로가 같은 정규화를 사용하고 있으며, 실제 배치 통계도 근접합니다.")
+        _log("✔ 학습과 평가 경로가 같은 정규화를 사용하고 있으며, 실제 배치 통계도 근접합니다.")
     elif same_config and not observed_close:
-        print("△ 설정(mean/std)은 동일하지만, 실제 배치 통계가 다소 차이가 있습니다. (배치 구성/리사이즈/증강 확인 필요)")
+        _log("△ 설정(mean/std)은 동일하지만, 실제 배치 통계가 다소 차이가 있습니다. (배치 구성/리사이즈/증강 확인 필요)")
     elif not same_config and observed_close:
-        print("△ 설정(mean/std)은 다르게 보이지만, 실제 배치 통계는 유사합니다. (중간에 추가 정규화/전처리 래퍼가 있을 수 있음)")
+        _log("△ 설정(mean/std)은 다르게 보이지만, 실제 배치 통계는 유사합니다. (중간에 추가 정규화/전처리 래퍼가 있을 수 있음)")
     else:
-        print("✘ 학습과 평가 정규화가 불일치할 가능성이 높습니다. 환경변수 FL_NORM_MEAN/STD 또는 transform 구성을 확인하세요.")
+        _log("✘ 학습과 평가 정규화가 불일치할 가능성이 높습니다. 환경변수 FL_NORM_MEAN/STD 또는 transform 구성을 확인하세요.")
 
     return dict(
         same_config=same_config,
