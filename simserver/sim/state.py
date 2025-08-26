@@ -1,5 +1,5 @@
 # simserver/sim/state.py
-import json, re, asyncio, threading, copy
+import asyncio, threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path

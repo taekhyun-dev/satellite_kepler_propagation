@@ -14,6 +14,12 @@ GLOBAL_METRICS_HEADER = [
     "timestamp","version","split","num_samples","loss","acc","f1_macro",
     "madds_M","flops_M","latency_ms","ckpt_path"
 ]
+try:
+    LOG_DIR = CKPT_DIR.parent / "logs"
+except NameError:
+    # 혹시 CKPT_DIR가 아직 정의되지 않은 구조면, 프로젝트 루트 하위 logs로
+    LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
+
 
 for p in [CKPT_DIR, GLOBAL_METRICS_DIR, LOCAL_METRICS_DIR, METRICS_DIR]:
     p.mkdir(parents=True, exist_ok=True)

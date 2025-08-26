@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, Future
 from torch.utils.data import DataLoader
 import torch, torch.nn as nn, torch.optim as optim
+from torchvision import transforms as _T
 import threading
 
 from ..core.logging import make_logger
@@ -22,6 +23,97 @@ from ..sim.state import AppState, TrainState
 from .aggregate import parse_fromg, upload_and_aggregate, get_global_model_snapshot
 
 logger = make_logger("simserver.train")
+
+from torch.cuda.amp import GradScaler
+
+def _dataset_seems_normalized(ds, *,
+                              tol_min=-0.05, tol_max=1.05) -> bool:
+    """
+    텐서 샘플 1개를 확인:
+    - 값 범위가 [0,1]에 가깝다면 → 아직 정규화 전(= Normalize 필요) → False
+    - 범위를 벗어나면(음수/1 초과 등) → 이미 표준화된 것으로 간주 → True
+    """
+    try:
+        x, _ = ds[0]
+        if torch.is_tensor(x):
+            m = float(x.min())
+            M = float(x.max())
+            # 0..1 범위면 아직 Normalize 전
+            if (m >= tol_min) and (M <= tol_max):
+                return False
+            return True
+    except Exception:
+        pass
+    return False
+
+def _maybe_wrap_with_transform(dataset, build_transform_fn):
+    """이미 정규화된 텐서를 내는 데이터셋은 건드리지 않음."""
+    if _dataset_seems_normalized(dataset):
+        return dataset, False
+    # torchvision 계열이면 transform 속성 우선 주입
+    if hasattr(dataset, "transform"):
+        try:
+            dataset.transform = build_transform_fn()
+            return dataset, True
+        except Exception:
+            pass
+    # 그 외에는 래퍼 사용
+    from torchvision import transforms as _T
+    class _Wrap(torch.utils.data.Dataset):
+        def __init__(self, base, tfm):
+            self.base, self.tfm = base, tfm
+        def __len__(self): return len(self.base)
+        def __getitem__(self, i):
+            x, y = self.base[i]
+            # x가 텐서면 Normalize만 적용, PIL/ndarray면 Resize+ToTensor+Normalize 전체 적용
+            tfm = self.tfm
+            if torch.is_tensor(x):
+                # 채널순서(CHW) 텐서로 가정: ToTensor 생략, Normalize만
+                xmin = float(x.min()); xmax = float(x.max())
+                if (xmin >= -1e-3) and (xmax <= 1.0 + 1e-3):
+                    mean = tuple(map(float, os.getenv("FL_NORM_MEAN","0.4915,0.4823,0.4468").split(",")))
+                    std  = tuple(map(float, os.getenv("FL_NORM_STD" ,"0.2470,0.2435,0.2616").split(",")))
+                    mean_t = torch.tensor(mean, dtype=x.dtype, device=x.device)[:, None, None]
+                    std_t  = torch.tensor(std,  dtype=x.dtype, device=x.device)[:, None, None]
+                    x = (x - mean_t) / std_t
+                # 이미 정규화된 값 범위면 그대로 리턴(추가 Normalize 금지)
+                return x, y
+            else:
+                return tfm(x), y
+    try:
+        from torchvision import transforms as _T
+        img_size = int(os.getenv("FL_IMG_SIZE", "32"))
+        mean = tuple(map(float, os.getenv("FL_NORM_MEAN","0.4915,0.4823,0.4468").split(",")))
+        std  = tuple(map(float, os.getenv("FL_NORM_STD" ,"0.2470,0.2435,0.2616").split(",")))
+        tfm = _T.Compose([_T.Resize(img_size), _T.ToTensor(), _T.Normalize(mean, std)])
+        return _Wrap(dataset, tfm), True
+    except Exception:
+        return dataset, False
+
+def _build_train_transform():
+    img_size = get_env_int("FL_IMG_SIZE", 32)
+    mean = tuple(map(float, os.getenv("FL_NORM_MEAN", "0.4914,0.4822,0.4465").split(",")))
+    std  = tuple(map(float, os.getenv("FL_NORM_STD",  "0.2470,0.2435,0.2616").split(",")))
+    # 필요하면 augmentation을 여기 추가 (RandomCrop/Flip 등)
+    return _T.Compose([
+        _T.Resize(img_size),
+        _T.ToTensor(),
+        _T.Normalize(mean, std),
+    ])
+
+class _WithTransform(torch.utils.data.Dataset):
+    """기존 dataset에 transform을 강제로 주입하기 위한 래퍼"""
+    def __init__(self, base, transform):
+        self.base = base
+        self.transform = transform
+    def __len__(self):
+        return len(self.base)
+    def __getitem__(self, idx):
+        x, y = self.base[idx]
+        # base가 PIL/numpy/torch 모두 처리: ToTensor가 처리
+        if self.transform is not None:
+            x = self.transform(x)
+        return x, y
 
 def ensure_all_on_model_device(model, optimizer, criterion=None):
     dev = next(model.parameters()).device
@@ -108,17 +200,43 @@ def get_eval_dataset(ctx: AppState, split: str):
 
 def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
                       *, epochs=None, lr=None, batch_size=None) -> str:
-    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","2")) if epochs is None else int(epochs)
+    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","10")) if epochs is None else int(epochs)
     LR     = float(os.getenv("FL_LR","1e-3"))           if lr is None else float(lr)
     BS     = int(os.getenv("FL_BATCH_SIZE","128"))      if batch_size is None else int(batch_size)
     NUM_CLASSES = ctx.cfg.num_classes
+
+    USE_AMP = os.getenv("FL_USE_AMP", "1") == "1"
+    MAX_BAD_SKIPS = int(os.getenv("FL_MAX_BAD_BATCH_SKIPS","20"))
+    MAX_STALENESS = int(os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS","6")))
+
+    device = torch.device(f"cuda:{gpu_id}") if (torch.cuda.is_available() and gpu_id is not None) else (
+             torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+    init_scale_env = os.getenv("FL_AMP_INIT_SCALE", "65536")  # 선택: 환경에서 받기
+    try:
+        init_scale = float(init_scale_env) if init_scale_env is not None else 65536.0
+    except Exception:
+        logger.warning(f"SAT{sat_id}: invalid FL_AMP_INIT_SCALE='{init_scale_env}', disable AMP for safety.")
+        USE_AMP = False
+        init_scale = 1.0
+
+
+    scaler = GradScaler(enabled=(USE_AMP and device.type == "cuda"), init_scale=init_scale)
 
     device = torch.device(f"cuda:{gpu_id}") if (torch.cuda.is_available() and gpu_id is not None) else (
              torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
 
     model = new_model_skeleton(NUM_CLASSES)
-    start_gver = ctx.GLOBAL_MODEL_VERSION
+    try:
+        last_linear = None
+        for m in model.modules():
+            if isinstance(m, nn.Linear):
+                last_linear = m
+        if last_linear is not None and last_linear.out_features != NUM_CLASSES:
+            logger.warning(f"[SANITY] head out_features={last_linear.out_features} != NUM_CLASSES={NUM_CLASSES}")
+    except Exception:
+        pass
 
+    start_gver = ctx.GLOBAL_MODEL_VERSION
     resumed = False
     try:
         meta = load_last_local_ptr(sat_id)
@@ -129,7 +247,14 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
             if fg is None or fg < 0:
                 fg = parse_fromg(os.path.basename(meta["path"])) or start_gver
             start_gver = int(fg); resumed = True
-            logger.info(f"SAT{sat_id}: resumed from {meta['path']} (from_gv={start_gver})")
+            if (ctx.GLOBAL_MODEL_VERSION - start_gver) > max(0, MAX_STALENESS):
+                logger.info(f"SAT{sat_id}: resume too stale (from_gv={start_gver}, cur={ctx.GLOBAL_MODEL_VERSION}); reinit from current global.")
+                gver, gstate = get_global_model_snapshot(ctx)
+                if gstate:
+                    model.load_state_dict(gstate, strict=False)
+                    start_gver = int(gver); resumed = False
+            else:
+                logger.info(f"SAT{sat_id}: resumed from {meta['path']} (from_gv={start_gver})")
     except Exception as e:
         logger.info(f"SAT{sat_id}: no local resume; use global. err={e}")
 
@@ -146,6 +271,14 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
 
     model.to(device).train()
     dataset = get_training_dataset(sat_id)
+
+    ENFORCE_NORM = os.getenv("FL_ENFORCE_TRAIN_NORM", "1") == "1"
+    if ENFORCE_NORM:
+        dataset, applied = _maybe_wrap_with_transform(dataset, _build_train_transform)
+        logger.info(f"SAT{sat_id}: train normalization {'applied' if applied else 'skipped (already normalized)'}")
+
+
+
     pin = torch.cuda.is_available() and ctx.cfg.dataloader_workers > 0
     loader = DataLoader(dataset, batch_size=BS, shuffle=True, drop_last=False,
                         num_workers=ctx.cfg.dataloader_workers, pin_memory=pin,
@@ -154,7 +287,6 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LR)
     clip_norm = float(os.getenv("FL_CLIP_NORM","1.0"))
-    max_bad_skips = int(os.getenv("FL_MAX_BAD_BATCH_SKIPS","20"))
 
     def save_ckpt(ep: int) -> str:
         ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -176,21 +308,38 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
         device = ensure_all_on_model_device(model, optimizer, criterion)
         model_dtype = next(model.parameters()).dtype
 
+        did_sanity_log = False
+
         for images, labels in loader:
             if stop_event.is_set(): break
+
+            if labels.dtype != torch.long:
+                labels = labels.long()
+            
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             if images.is_floating_point() and images.dtype != model_dtype:
                 images = images.to(model_dtype)
 
+            if not did_sanity_log:
+                with torch.no_grad():
+                    m = float(images.mean().detach().cpu())
+                    s = float(images.std().detach().cpu())
+                    y_min = int(labels.min().detach().cpu()) if labels.numel() else -1
+                    y_max = int(labels.max().detach().cpu()) if labels.numel() else -1
+                    logger.info(f"SAT{sat_id}: sanity img mean={m:.3f} std={s:.3f} "
+                                f"label_range=[{y_min},{y_max}] C={NUM_CLASSES}")
+                did_sanity_log = True
+
             optimizer.zero_grad(set_to_none=True)
-            use_amp = (device.type == "cuda")
             try:
-                if use_amp:
+                if scaler.is_enabled() and device.type == "cuda":
                     with torch.autocast(device_type="cuda", dtype=torch.float16):
                         outputs = model(images)
+                        loss = criterion(outputs, labels)
                 else:
                     outputs = model(images)
+                    loss = criterion(outputs, labels)
             except RuntimeError as e:
                 msg = str(e)
                 if ("Expected all tensors to be on the same device" in msg) or ("and weight type" in msg):
@@ -198,30 +347,44 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
                     images = images.to(device, non_blocking=True)
                     labels = labels.to(device, non_blocking=True)
                     outputs = model(images)
+                    loss = criterion(outputs, labels)
                 else:
                     raise
 
-            loss = criterion(outputs, labels)
             if not torch.isfinite(loss):
                 bad_skips += 1
                 if bad_skips % 5 == 0:
                     for g in optimizer.param_groups:
                         g['lr'] = max(g['lr'] * 0.5, 1e-6)
                     logger.info(f"SAT{sat_id}: non-finite loss; halve LR -> {optimizer.param_groups[0]['lr']:.2e}")
-                if bad_skips >= max_bad_skips:
-                    logger.info(f"SAT{sat_id}: too many bad batches; break epoch")
+                if bad_skips >= MAX_BAD_SKIPS:
+                    logger.info(f"SAT{sat_id}: too many bad batches; break epoch (AMP={USE_AMP})")
                     break
                 continue
 
-            loss.backward()
-            if clip_norm > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
-            optimizer.step()
+
+            # backward + step (AMP/FP32 공통화)
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                if clip_norm > 0:
+                    scaler.unscale_(optimizer)  # 클립 전에 unscale (중요)
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                if clip_norm > 0:
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
+                optimizer.step()
 
             running_loss += float(loss.item())
             _, pred = outputs.max(1)
             total += labels.size(0)
             correct += int(pred.eq(labels).sum().item())
+
+        if total == 0 and scaler.is_enabled():
+            logger.warning(f"SAT{sat_id}: epoch{ep+1} produced no valid steps; disabling AMP for stability.")
+            scaler = GradScaler('cuda',enabled=False)
 
         avg_loss = running_loss / max(1, len(loader))
         acc = 100.0 * correct / max(1, total)

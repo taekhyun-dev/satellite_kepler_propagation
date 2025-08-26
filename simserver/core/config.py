@@ -67,7 +67,7 @@ def load_settings() -> Settings:
         eval_bs=get_env_int("FL_EVAL_BS", 1024),
         num_classes=get_env_int("FL_NUM_CLASSES", 10),
         agg_alpha=get_env_float("FL_AGG_ALPHA", 0.05),
-        momentum=get_env_float("FL_SERVER_MOM", 0.9),
+        momentum=get_env_float("FL_SERVER_MOM", 0.0),
         staleness_tau=get_env_float("FL_STALENESS_TAU", 1000),
         staleness_mode=os.getenv("FL_STALENESS_MODE", "exp"),
         w_min=get_env_float("FL_STALENESS_W_MIN", 0.0),

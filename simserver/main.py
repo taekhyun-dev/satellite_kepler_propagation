@@ -1,8 +1,13 @@
 from __future__ import annotations
 import os
 import uvicorn
+from simserver.core.logging import setup_logging, make_logger
 
 def main():
+    setup_logging()  # 파일/콘솔 핸들러 구성
+    log = make_logger("simserver.main")
+    log.info("SimServer starting up...")
+    
     # 환경에 맞게 host/port 조정
     uvicorn.run(
         "simserver.app:create_app",

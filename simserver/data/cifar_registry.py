@@ -174,9 +174,32 @@ class CIFARDataRegistry:
         tfm = self._eval_transform()
         ds_full = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
         if self._val_idx is None:
-            # 스플릿 못 만들면 전체를 반환(최소 동작 보장)
             return ds_full
-        return Subset(ds_full, self._val_idx.tolist())
+
+        sub = Subset(ds_full, self._val_idx.tolist())
+
+        # ★ Subset에도 transform/정규화 통계를 ‘노출’ (디버그/검증용)
+        try:
+            from torchvision import transforms as T
+            setattr(sub, "transform", getattr(ds_full, "transform", None))
+            # Normalize(mean,std) 찾아서 MEAN/STD 속성으로 부착
+            mean = std = None
+            if tfm is not None and hasattr(tfm, "transforms"):
+                for t in tfm.transforms:
+                    if isinstance(t, T.Normalize):
+                        mean = tuple(float(x) for x in t.mean)
+                        std  = tuple(float(x) for x in t.std)
+                        break
+            if mean is None or std is None:
+                # 환경변수 or 기본값
+                mean = tuple(map(float, os.getenv("FL_NORM_MEAN","0.4915,0.4823,0.4468").split(",")))
+                std  = tuple(map(float, os.getenv("FL_NORM_STD" ,"0.2470,0.2435,0.2616").split(",")))
+            setattr(sub, "MEAN", torch.tensor(mean, dtype=torch.float32))
+            setattr(sub, "STD",  torch.tensor(std , dtype=torch.float32))
+        except Exception:
+            pass
+
+        return sub
 
     def get_test_dataset(self) -> Optional[Dataset]:
         """테스트용 데이터셋 반환(없으면 None). 기본은 CIFAR-10 test의 나머지 절반."""
@@ -186,9 +209,30 @@ class CIFARDataRegistry:
         tfm = self._eval_transform()
         ds_full = CIFAR10(root=str(CIFAR_ROOT), train=False, download=True, transform=tfm)
         if self._test_idx is None:
-            # 스플릿 못 만들면 전체를 반환(최소 동작 보장)
             return ds_full
-        return Subset(ds_full, self._test_idx.tolist())
+
+        sub = Subset(ds_full, self._test_idx.tolist())
+
+        # ★ Subset에도 transform/정규화 통계를 ‘노출’ (디버그/검증용)
+        try:
+            from torchvision import transforms as T
+            setattr(sub, "transform", getattr(ds_full, "transform", None))
+            mean = std = None
+            if tfm is not None and hasattr(tfm, "transforms"):
+                for t in tfm.transforms:
+                    if isinstance(t, T.Normalize):
+                        mean = tuple(float(x) for x in t.mean)
+                        std  = tuple(float(x) for x in t.std)
+                        break
+            if mean is None or std is None:
+                mean = tuple(map(float, os.getenv("FL_NORM_MEAN","0.4915,0.4823,0.4468").split(",")))
+                std  = tuple(map(float, os.getenv("FL_NORM_STD" ,"0.2470,0.2435,0.2616").split(",")))
+            setattr(sub, "MEAN", torch.tensor(mean, dtype=torch.float32))
+            setattr(sub, "STD",  torch.tensor(std , dtype=torch.float32))
+        except Exception:
+            pass
+
+        return sub
 
 
 # ---- 전역 싱글톤 & 간편 훅 ----

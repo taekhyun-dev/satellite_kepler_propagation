@@ -13,6 +13,82 @@ from ..dataio.registry import get_training_dataset
 
 logger = make_logger("simserver.agg")
 
+def add_model(dst_model, src_model):
+    """In-place: dst += src on parameters (buffers untouched)."""
+    params1 = src_model.named_parameters()
+    params2 = dst_model.named_parameters()
+    dict_params2 = dict(params2)
+    import torch
+    with torch.no_grad():
+        for name1, param1 in params1:
+            if name1 in dict_params2:
+                dict_params2[name1].set_(param1.data + dict_params2[name1].data)
+    return dst_model
+
+def scale_model(model, scale: float):
+    """In-place: params *= scale (buffers untouched)."""
+    params = model.named_parameters()
+    dict_params = dict(params)
+    import torch
+    with torch.no_grad():
+        for name, param in dict_params.items():
+            dict_params[name].set_(dict_params[name].data * scale)
+    return model
+# -----------------------------------------------------------------------------
+
+def _is_bn_stat_key(k: str) -> bool:
+    return (k.endswith("running_mean") or k.endswith("running_var") or ("num_batches_tracked" in k))
+
+def _is_bn_affine_name(name: str) -> bool:
+    # e.g., "layer1.bn1.weight"/".bias"
+    return ((".bn" in name or "bn" in name) and (name.endswith(".weight") or name.endswith(".bias")))
+
+def _build_model_from_state(num_classes: int, state: dict):
+    """새 스켈레톤에 state_dict를 load해서 nn.Module을 반환"""
+    from .model import new_model_skeleton
+    model = new_model_skeleton(num_classes)
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    if missing or unexpected:
+        logger.debug(f"[AGG] load_state mismatch (build): missing={len(missing)}, unexpected={len(unexpected)}")
+    model.to("cpu")  # 집계는 CPU에서 수행
+    model.eval()
+    return model
+
+def _mix_with_alpha(
+    g_state: dict, l_state: dict, num_classes: int, alpha: float, bn_scale: float
+) -> dict:
+    """
+    pysyft add/scale을 사용해 (1-a_k)*g + a_k*l 로 파라미터를 섞음.
+    - a_k = alpha (일반 파라미터), alpha*bn_scale (BN affine)
+    - BN running stats/num_batches_tracked는 섞지 않음(= g_state 유지)
+    """
+    import copy, torch
+    # 모듈화
+    g_m = _build_model_from_state(num_classes, g_state)
+    l_m = _build_model_from_state(num_classes, l_state)
+
+    if abs(bn_scale - 1.0) < 1e-12:
+        # 전 파라미터 동일 alpha: 정석 pysyft 합성 (buffers 유지)
+        gm = copy.deepcopy(g_m)
+        lm = copy.deepcopy(l_m)
+        scale_model(gm, 1.0 - float(alpha))
+        scale_model(lm, float(alpha))
+        out_m = add_model(gm, lm)
+    else:
+        # 파라미터별 상이한 alpha: 이름별로 직접 혼합
+        out_m = g_m  # in-place
+        with torch.no_grad():
+            l_params = dict(l_m.named_parameters())
+            for name, g_p in out_m.named_parameters():
+                if name not in l_params:
+                    continue
+                a_k = float(alpha) * (bn_scale if _is_bn_affine_name(name) else 1.0)
+                l_p = l_params[name]
+                g_p.set_((1.0 - a_k) * g_p.data + a_k * l_p.data)
+
+    # out_m의 state_dict는 파라미터 + (g_state에서 온) 버퍼 포함
+    return out_m.state_dict()
+
 def _calc_norm(d, keys=None):
     tot = 0.0
     if keys is None: keys = d.keys()
@@ -41,10 +117,36 @@ def staleness_factor(s: int, tau: float, mode: str) -> float:
     return math.exp(-float(s) / tau)
 
 def alpha_for(ctx: AppState, sat_id: int, s: int, n_samples_override: Optional[int] = None) -> float:
+    # --- MAX_STALENESS(환경변수) 우선 드랍 처리
+    import os
+    max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 6))
+    if max_stale_env is not None:
+        try:
+            max_stale_env = int(max_stale_env)
+            if max_stale_env >= 0 and s > max_stale_env:
+                return 0.0
+        except Exception:
+            pass
+
     if s >= max(ctx.cfg.fresh_cutoff, 0):
         return 0.0
 
     decay = staleness_factor(s, ctx.cfg.staleness_tau, ctx.cfg.staleness_mode)
+
+    try:
+        beta = float(os.getenv("STALENESS_DECAY_BETA", os.getenv("FL_STALENESS_DECAY_BETA", "1.0")))
+        if beta != 1.0:
+            decay = float(decay) ** max(0.0, beta)
+    except Exception:
+        pass
+
+    # --- STALENESS_DECAY_BETA : decay ** beta 로 감쇠 강도 조정
+    try:
+        beta = float(os.getenv("STALENESS_DECAY_BETA", os.getenv("FL_STALENESS_DECAY_BETA", "1.0")))
+        if beta != 1.0:
+            decay = float(decay) ** max(0.0, beta)
+    except Exception:
+        pass
 
     def _client_num_samples(_sid: int) -> int:
         # 우선 override
@@ -134,6 +236,9 @@ def find_latest_global_ckpt():
 def init_global_model(ctx: AppState):
     import torch
     from .model import new_model_skeleton
+    from simserver.fl.debug_norm import log_norm_consistency
+
+    report = log_norm_consistency(ctx, sat_id=0, split="val", batch_size=128)
 
     with ctx.GLOBAL_MODEL_LOCK:
         ver, path = load_last_global_ptr()
@@ -184,13 +289,24 @@ def upload_and_aggregate(
 
         stream_fedavg = os.getenv("FL_STREAM_FEDAVG", "1") == "1"
         # 누적 샘플 상태 초기화
-        if stream_fedavg:
-            if not hasattr(ctx, "_round_id"):   ctx._round_id = None    # ★
-            if not hasattr(ctx, "_round_seen"): ctx._round_seen = 0     # ★
-            this_round = (base_ver if base_ver is not None else gver_now)
-            if ctx._round_id != this_round:     # 라운드 변경 시 리셋        # ★
-                ctx._round_id = this_round
-                ctx._round_seen = 0
+        # if stream_fedavg:
+        #     if not hasattr(ctx, "_round_id"):   ctx._round_id = None    # ★
+        #     if not hasattr(ctx, "_round_seen"): ctx._round_seen = 0     # ★
+        #     this_round = (base_ver if base_ver is not None else gver_now)
+        #     if ctx._round_id != this_round:     # 라운드 변경 시 리셋        # ★
+        #         ctx._round_id = this_round
+        #         ctx._round_seen = 0
+
+        # --- MAX_STALENESS(환경변수) : env가 설정되면 config보다 우선 적용
+        max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 10))
+        if max_stale_env is not None:
+            try:
+                max_stale_env = int(max_stale_env)
+                if max_stale_env >= 0 and s > max_stale_env:
+                    logger.info(f"[AGG] drop stale update by env MAX_STALENESS: s={s} (> {max_stale_env}) from {ckpt_path}")
+                    return str(CKPT_DIR / f"global_v{ctx.GLOBAL_MODEL_VERSION}.ckpt")
+            except Exception:
+                pass
 
         if ctx.cfg.s_max_drop > 0 and s > ctx.cfg.s_max_drop and not stream_fedavg:
             logger.info(f"[AGG] drop stale update: s={s} (> {ctx.cfg.s_max_drop}) from {ckpt_path}")
@@ -198,11 +314,14 @@ def upload_and_aggregate(
 
         # α 계산
         if stream_fedavg:
-            nk = int(n_samples) if (n_samples is not None) else 1       # ★
-            alpha_eff = nk / max(1, ctx._round_seen + nk)                # ★ 정확한 가중 평균 계수
+            if not hasattr(ctx, "_round_seen"):   ctx._round_seen = {}  # <- 라운드별 누적
+            this_round = (base_ver if base_ver is not None else gver_now)
+            seen = int(ctx._round_seen.get(this_round, 0))
+            nk = int(n_samples) if (n_samples is not None) else 1
+            alpha_eff = nk / max(1, seen + nk)
+            ctx._round_seen[this_round] = seen + nk
         else:
             alpha_eff = alpha_for(ctx, sat_id, s)
-
 
         # --- 글로벌이 비어 있거나 첫 초기화인 경우 보호
         if ctx.GLOBAL_MODEL_STATE is None or len(ctx.GLOBAL_MODEL_STATE) == 0:
@@ -271,34 +390,59 @@ def upload_and_aggregate(
             theo_sumsq += float(torch.dot(diff, diff)) * (a_k ** 2)
         theo_rel = math.sqrt(theo_sumsq) / pre_vec_norm
 
+        # --- DELTA_NORM_CLIP : 상대 변화량 상한(‖ΔW‖/‖W‖) 적용
+        clip_rel_env = os.getenv("DELTA_NORM_CLIP", os.getenv("FL_DELTA_NORM_CLIP", "0"))
+        try:
+            clip_rel = float(clip_rel_env)
+        except Exception:
+            clip_rel = 0.0
+
+        clip_scale = 1.0
+        if clip_rel > 0.0 and theo_rel > clip_rel:
+            clip_scale = clip_rel / max(theo_rel, 1e-12)
+            alpha_eff *= clip_scale  # 전역 스케일 축소
+
+        use_pysyft = os.getenv("FL_USE_PYSYFT_AGG", "1") == "1"
+
         skipped_bn = 0
-        for k in matched:
-            if _is_bn_stat(k):
-                # BN running_mean/running_var/num_batches_tracked: 건드리지 않음
-                skipped_bn += 1
-                continue
+        if use_pysyft:
+            # pysyft 방식: add_model/scale_model(또는 파라미터별 혼합)로 한 번에 섞기
+            # (서버 모멘텀은 pysyft 경로에서는 비활성; 필요 시 FL_USE_PYSYFT_AGG=0 로 기존 경로 사용)
+            new_state = _mix_with_alpha(
+                g_state, local_state, ctx.cfg.num_classes, alpha_eff, bn_scale
+            )
+            # BN running stats는 섞지 않으므로 '스킵' 카운트만 로깅 용도로 계산
+            skipped_bn = sum(1 for k in matched if _is_bn_stat_key(k))
+            # 글로벌 교체
+            g_state = new_state
+        else:
+            for k in matched:
+                if _is_bn_stat(k):
+                    # BN running_mean/running_var/num_batches_tracked: 건드리지 않음
+                    skipped_bn += 1
+                    continue
 
-            g = g_state[k].detach().cpu().float()
-            l = local_state[k].detach().cpu().float()
-            delta = l - g
+                g = g_state[k].detach().cpu().float()
+                l = local_state[k].detach().cpu().float()
+                delta = l - g
 
-            # BN affine은 축소된 alpha로
-            alpha_k = (alpha_eff * (bn_scale if _is_bn_affine(k) else 1.0))
+                # BN affine은 축소된 alpha로
+                alpha_k = (alpha_eff * (bn_scale if _is_bn_affine(k) else 1.0))
 
-            # 모멘텀 업데이트
-            v = ctx.GLOBAL_VEL.get(k, torch.zeros_like(delta))
-            if beta > 0.0:
-                v = v * beta + delta * alpha_k
-                g_new = g + v
-                ctx.GLOBAL_VEL[k] = v
-            else:
-                g_new = g + delta * alpha_k
+                # 모멘텀 업데이트
+                v = ctx.GLOBAL_VEL.get(k, torch.zeros_like(delta))
+                if beta > 0.0:
+                    v = v * beta + delta * alpha_k
+                    g_new = g + v
+                    ctx.GLOBAL_VEL[k] = v
+                else:
+                    g_new = g + delta * alpha_k
 
-            # dtype/디바이스 원복
-            g_state[k] = g_new.to(ctx.GLOBAL_MODEL_STATE[k].dtype)
+                # dtype/디바이스 원복
+                g_state[k] = g_new.to(ctx.GLOBAL_MODEL_STATE[k].dtype)
 
-        if stream_fedavg:
-            ctx._round_seen += int(n_samples) if (n_samples is not None) else 1
+        # if stream_fedavg:
+        #     ctx._round_seen += int(n_samples) if (n_samples is not None) else 1
 
         applied_sumsq = 0.0
         for k in included:
@@ -415,8 +559,3 @@ def upload_and_aggregate(
         logger.warning(f"[AGG] global eval failed: {e}")
 
     return str(out_path)
-
-
-async def upload_and_aggregate_async(ctx: AppState, sat_id: int, ckpt_path: str) -> str:
-    import asyncio
-    return await asyncio.to_thread(upload_and_aggregate, ctx, sat_id, ckpt_path)

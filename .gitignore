@@ -38,3 +38,9 @@ simserver/metrics/**
 *.ckpt
 *.pth
 *.pt
+
+# --- Logs ---
+/logs/           # 루트의 logs 폴더 전체 무시
+**/logs/         # (옵션) 하위 경로 어딘가에 생기는 logs 폴더도 무시
+*.log
+*.log.*
