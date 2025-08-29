@@ -90,7 +90,7 @@ def _detect_effective_norm_from_dataset(ds):
     return ("unknown", None, None)
 
 @torch.no_grad()
-def _channel_stats_from_loader(ds, batch_size=128, max_batches=2):
+def _channel_stats_from_loader(ds, batch_size=64, max_batches=2):
     """
     배치 몇 개 가져와서 채널별 mean/std를 실제로 계산.
     (정규화 결과가 실제로 0/1 근처인지 확인하는 용도)
@@ -126,7 +126,7 @@ def _channel_stats_from_loader(ds, batch_size=128, max_batches=2):
     std_c  = [float(v**0.5) for v in var_c]
     return tuple(float(m) for m in mean_c), tuple(std_c)
 
-def log_norm_consistency(ctx, sat_id: int, split: str = "val", batch_size: int = 128, atol: float = 1e-3):
+def log_norm_consistency(ctx, sat_id: int, split: str = "val", batch_size: int = 64, atol: float = 1e-3):
     """
     - 학습 데이터셋과 평가 데이터셋이 사용하는 (mean,std)를 추출해서 비교
     - 실제 배치에서 채널별 평균/표준편차도 계산해 비교

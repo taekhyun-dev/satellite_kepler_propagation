@@ -200,9 +200,9 @@ def get_eval_dataset(ctx: AppState, split: str):
 
 def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
                       *, epochs=None, lr=None, batch_size=None) -> str:
-    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","10")) if epochs is None else int(epochs)
-    LR     = float(os.getenv("FL_LR","1e-3"))           if lr is None else float(lr)
-    BS     = int(os.getenv("FL_BATCH_SIZE","128"))      if batch_size is None else int(batch_size)
+    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","1")) if epochs is None else int(epochs)
+    LR     = float(os.getenv("FL_LR","1e-2"))           if lr is None else float(lr)
+    BS     = int(os.getenv("FL_BATCH_SIZE","64"))      if batch_size is None else int(batch_size)
     NUM_CLASSES = ctx.cfg.num_classes
 
     USE_AMP = os.getenv("FL_USE_AMP", "1") == "1"
@@ -285,8 +285,14 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
                         persistent_workers=(ctx.cfg.dataloader_workers>0))
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=LR)
+    WD    = float(os.getenv("FL_WEIGHT_DECAY","5e-4"))                                      # ★ L2 정규화(권장: CIFAR 5e-4)
+    MOM   = float(os.getenv("FL_MOMENTUM","0.9"))                                           # ★
+    optimizer = optim.SGD(                                                              # ★
+            model.parameters(), lr=LR, momentum=MOM, weight_decay=WD,                       # ★
+            nesterov=(os.getenv("FL_NESTEROV","1")=="1")                                    # ★
+    )         
     clip_norm = float(os.getenv("FL_CLIP_NORM","1.0"))
+
 
     def save_ckpt(ep: int) -> str:
         ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -430,6 +436,14 @@ async def train_worker(ctx: AppState, gpu_id: Optional[int]):
                 st.running = False
                 logger.info(f"SAT{sat_id}: training DONE (gpu={gpu_id}), ckpt={ckpt}")
                 ctx.train_queue.task_done()
+
+                # ★★★ OFFLINE 모드: 통신 불가해도 로컬 학습 계속 돌리기 ★★★
+                if os.getenv("FL_OFFLINE_CONTINUE","1") == "1":                     # ★
+                    try:                                                            # ★
+                        enqueue_training(ctx, sat_id)                               # ★
+                        logger.info(f"SAT{sat_id}: re-enqueued for offline-continue.")  # ★
+                    except Exception as _e:                                         # ★
+                        logger.warning(f"SAT{sat_id}: offline-continue enqueue failed: {_e}")  # ★
     except asyncio.CancelledError:
         logger.info("[TRAIN] worker cancelled")
         raise

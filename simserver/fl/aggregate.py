@@ -289,13 +289,11 @@ def upload_and_aggregate(
 
         stream_fedavg = os.getenv("FL_STREAM_FEDAVG", "1") == "1"
         # 누적 샘플 상태 초기화
-        # if stream_fedavg:
-        #     if not hasattr(ctx, "_round_id"):   ctx._round_id = None    # ★
-        #     if not hasattr(ctx, "_round_seen"): ctx._round_seen = 0     # ★
-        #     this_round = (base_ver if base_ver is not None else gver_now)
-        #     if ctx._round_id != this_round:     # 라운드 변경 시 리셋        # ★
-        #         ctx._round_id = this_round
-        #         ctx._round_seen = 0
+        if stream_fedavg:
+            if not hasattr(ctx, "_round_seen"): ctx._round_seen = {}
+            this_round = (base_ver if base_ver is not None else gver_now)
+            if this_round not in ctx._round_seen:                   
+                ctx._round_seen[this_round] = 0
 
         # --- MAX_STALENESS(환경변수) : env가 설정되면 config보다 우선 적용
         max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 10))
@@ -314,7 +312,7 @@ def upload_and_aggregate(
 
         # α 계산
         if stream_fedavg:
-            if not hasattr(ctx, "_round_seen"):   ctx._round_seen = {}  # <- 라운드별 누적
+            # if not hasattr(ctx, "_round_seen"):   ctx._round_seen = {}  # <- 라운드별 누적
             this_round = (base_ver if base_ver is not None else gver_now)
             seen = int(ctx._round_seen.get(this_round, 0))
             nk = int(n_samples) if (n_samples is not None) else 1
@@ -356,7 +354,7 @@ def upload_and_aggregate(
         if not hasattr(ctx, "GLOBAL_VEL"):   # velocity buffer
             ctx.GLOBAL_VEL = {}
 
-        bn_scale = float(os.getenv("FL_BN_SCALE", "0.2"))  # BN affine 섞기 축소
+        bn_scale = float(os.getenv("FL_AGG_BN_SCALE", "0.5"))  # BN affine 섞기 축소
         # BN 러닝통계는 절대 섞지 않음
         def _is_bn_stat(k: str) -> bool:
             return (k.endswith("running_mean") or k.endswith("running_var") or ("num_batches_tracked" in k))
@@ -391,7 +389,8 @@ def upload_and_aggregate(
         theo_rel = math.sqrt(theo_sumsq) / pre_vec_norm
 
         # --- DELTA_NORM_CLIP : 상대 변화량 상한(‖ΔW‖/‖W‖) 적용
-        clip_rel_env = os.getenv("DELTA_NORM_CLIP", os.getenv("FL_DELTA_NORM_CLIP", "0"))
+        default_clip = "0.0" if stream_fedavg else "0.05"                               # ★
+        clip_rel_env = os.getenv("DELTA_NORM_CLIP", os.getenv("FL_DELTA_NORM_CLIP", default_clip))
         try:
             clip_rel = float(clip_rel_env)
         except Exception:
@@ -475,7 +474,7 @@ def upload_and_aggregate(
         if ctx.GLOBAL_MODEL_VERSION % max(1, ctx.cfg.eval_every_n) == 0:
             from .training import get_eval_dataset
             # 가벼운 sanity-eval을 먼저 수행(재보정 전)
-            def _quick_eval(state_dict, ds, max_batches=50):
+            def _quick_eval(state_dict, ds, max_batches=64):
                 if ds is None: return None, None, 0
                 from .model import new_model_skeleton
                 model = new_model_skeleton(ctx.cfg.num_classes)
@@ -507,13 +506,13 @@ def upload_and_aggregate(
             calib_ds = ds_val or ds_test
 
             if os.getenv("FL_SANITY_LOCAL","0") == "1":
-                l_loss, l_acc, ln = _quick_eval(local_state, ds_test or ds_val, max_batches=50)
+                l_loss, l_acc, ln = _quick_eval(local_state, ds_test or ds_val, max_batches=64)
                 if ln:
                     logger.info(f"[AGG] sanity(local): acc={l_acc:.2f}% loss={l_loss:.4f} on ~{ln} samples")
 
             # 재보정 전 간이 정확도(작은 배치)로 BN 문제 가시화
             if os.getenv("FL_AGG_SANITY", "1") == "1":
-                pre_loss, pre_acc, n_pre = _quick_eval(ctx.GLOBAL_MODEL_STATE, ds_test or ds_val, max_batches=50)
+                pre_loss, pre_acc, n_pre = _quick_eval(ctx.GLOBAL_MODEL_STATE, ds_test or ds_val, max_batches=64)
                 if n_pre:
                     logger.info(f"[AGG] sanity(pre-BN): acc={pre_acc:.2f}% loss={pre_loss:.4f} on ~{n_pre} samples")
 
@@ -533,7 +532,7 @@ def upload_and_aggregate(
 
             # 재보정 후 간이 정확도
             if os.getenv("FL_AGG_SANITY", "1") == "1":
-                post_loss, post_acc, n_post = _quick_eval(ctx.GLOBAL_MODEL_STATE, ds_test or ds_val, max_batches=50)
+                post_loss, post_acc, n_post = _quick_eval(ctx.GLOBAL_MODEL_STATE, ds_test or ds_val, max_batches=64)
                 if n_post:
                     logger.info(f"[AGG] sanity(post-BN): acc={post_acc:.2f}% loss={post_loss:.4f} on ~{n_post} samples")
 

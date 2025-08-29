@@ -74,6 +74,6 @@ def load_settings() -> Settings:
         s_max_drop=get_env_int("FL_STALENESS_MAX_DROP", 64),
         alpha_max=get_env_float("FL_AGG_ALPHA_MAX", 0.05),
         fresh_cutoff=get_env_int("FL_STALENESS_FRESH_CUTOFF", 40),
-        bn_scale=get_env_float("FL_AGG_BN_SCALE", 0.1),
+        bn_scale=get_env_float("FL_AGG_BN_SCALE", 0.5),
         num_gpus=resolved_gpus,
     )
