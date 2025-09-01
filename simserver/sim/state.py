@@ -67,7 +67,6 @@ class AppState:
     features: Features | None = None
 
 def build_initial_state(cfg: Settings) -> AppState:
-    from ..core.utils import get_env_int
     from skyfield.api import Topos
 
     # observers & iot (원 코드의 상수들 그대로 옮김)

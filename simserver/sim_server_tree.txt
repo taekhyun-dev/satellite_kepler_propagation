@@ -1,23 +1,11 @@
 .
 ├── __init__.py
-├── __pycache__
-│   ├── __init__.cpython-310.pyc
-│   ├── app.cpython-310.pyc
-│   ├── main.cpython-310.pyc
-│   ├── sat_comm_client.cpython-310.pyc
-│   └── sat_comm_server.cpython-310.pyc
 ├── app.py
+├── ckpt_check_global_delta.py
+├── ckpt_expect_fedavg.py
+├── ckpt_test.py
 ├── core
 │   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-310.pyc
-│   │   ├── config.cpython-310.pyc
-│   │   ├── features.cpython-310.pyc
-│   │   ├── gpu.cpython-310.pyc
-│   │   ├── hooks.cpython-310.pyc
-│   │   ├── logging.cpython-310.pyc
-│   │   ├── paths.cpython-310.pyc
-│   │   └── utils.cpython-310.pyc
 │   ├── config.py
 │   ├── features.py
 │   ├── gpu.py
@@ -27,70 +15,31 @@
 │   └── utils.py
 ├── data
 │   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-310.pyc
-│   │   ├── cifar_registry.cpython-310.pyc
-│   │   └── config.cpython-310.pyc
-│   ├── assignments
-│   │   └── assign_seed42_alpha0.3_spc2000.npz
 │   ├── cifar_data
 │   │   ├── cifar-10-batches-py
-│   │   │   ├── batches.meta
-│   │   │   ├── data_batch_1
-│   │   │   ├── data_batch_2
-│   │   │   ├── data_batch_3
-│   │   │   ├── data_batch_4
-│   │   │   ├── data_batch_5
-│   │   │   ├── readme.html
-│   │   │   └── test_batch
 │   │   └── cifar-10-python.tar.gz
 │   ├── cifar_registry.py
 │   └── config.py
 ├── dataio
 │   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-310.pyc
-│   │   └── registry.cpython-310.pyc
 │   └── registry.py
-├── eval_ckpts.py
 ├── fl
 │   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-310.pyc
-│   │   ├── aggregate.cpython-310.pyc
-│   │   ├── eval.cpython-310.pyc
-│   │   ├── metrics.cpython-310.pyc
-│   │   ├── model.cpython-310.pyc
-│   │   └── training.cpython-310.pyc
 │   ├── aggregate.py
+│   ├── debug_norm.py
 │   ├── eval.py
 │   ├── metrics.py
 │   ├── model.py
 │   └── training.py
-├── fl_stability.patch
+├── fl_metrics.py
 ├── main.py
-├── metrics
-├── out.log
-├── sat_comm_client.py
-├── sat_comm_server.py
 ├── sim
 │   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-310.pyc
-│   │   ├── loop.cpython-310.pyc
-│   │   ├── skyfiled.cpython-310.pyc
-│   │   └── state.cpython-310.pyc
 │   ├── loop.py
 │   ├── skyfiled.py
 │   └── state.py
 ├── sim_server_tree.txt
 └── web
     ├── __init__.py
-    ├── __pycache__
-    │   ├── __init__.cpython-310.pyc
-    │   ├── routes_api.cpython-310.pyc
-    │   └── routes_pages.cpython-310.pyc
     ├── routes_api.py
     └── routes_pages.py
-
-17 directories, 76 files

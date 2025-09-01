@@ -1,5 +1,5 @@
 # simserver/fl/training.py
-import os, asyncio, time, traceback
+import os, asyncio, traceback
 from typing import Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, Future
 from torch.utils.data import DataLoader
@@ -15,11 +15,9 @@ from .model import new_model_skeleton
 from .metrics import log_local_metrics
 from ..dataio.registry import (
     get_training_dataset, get_validation_dataset, get_test_dataset,
-    DATA_REGISTRY, CIFAR_ROOT, ASSIGNMENTS_DIR,
-    SAMPLES_PER_CLIENT, DIRICHLET_ALPHA, RNG_SEED, WITH_REPLACEMENT
+    DATA_REGISTRY, CIFAR_ROOT
 )
-from ..sim.skyfiled import to_ts
-from ..sim.state import AppState, TrainState
+from ..sim.state import AppState
 from .aggregate import parse_fromg, upload_and_aggregate, get_global_model_snapshot
 
 logger = make_logger("simserver.train")
@@ -101,19 +99,18 @@ def _build_train_transform():
         _T.Normalize(mean, std),
     ])
 
-class _WithTransform(torch.utils.data.Dataset):
-    """기존 dataset에 transform을 강제로 주입하기 위한 래퍼"""
-    def __init__(self, base, transform):
-        self.base = base
-        self.transform = transform
-    def __len__(self):
-        return len(self.base)
-    def __getitem__(self, idx):
-        x, y = self.base[idx]
-        # base가 PIL/numpy/torch 모두 처리: ToTensor가 처리
-        if self.transform is not None:
-            x = self.transform(x)
-        return x, y
+def _global_grad_norm(model) -> float | None:
+    """Return L2 norm of all gradients if available, else None."""
+    sqsum = 0.0
+    n = 0
+    for p in model.parameters():
+        if p.grad is not None:
+            g = p.grad.detach()
+            sqsum += float(g.pow(2).sum().item())
+            n += 1
+    if n == 0:
+        return None
+    return float(sqsum) ** 0.5
 
 def ensure_all_on_model_device(model, optimizer, criterion=None):
     dev = next(model.parameters()).device
@@ -198,7 +195,7 @@ def get_eval_dataset(ctx: AppState, split: str):
         logger.warning(f"[EVAL] torchvision CIFAR10 fallback failed: {e}")
         return None
 
-def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
+def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
                       *, epochs=None, lr=None, batch_size=None) -> str:
     EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","1")) if epochs is None else int(epochs)
     LR     = float(os.getenv("FL_LR","1e-2"))           if lr is None else float(lr)
@@ -219,11 +216,7 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
         USE_AMP = False
         init_scale = 1.0
 
-
     scaler = GradScaler(enabled=(USE_AMP and device.type == "cuda"), init_scale=init_scale)
-
-    device = torch.device(f"cuda:{gpu_id}") if (torch.cuda.is_available() and gpu_id is not None) else (
-             torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
 
     model = new_model_skeleton(NUM_CLASSES)
     try:
@@ -285,11 +278,11 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
                         persistent_workers=(ctx.cfg.dataloader_workers>0))
 
     criterion = nn.CrossEntropyLoss()
-    WD    = float(os.getenv("FL_WEIGHT_DECAY","5e-4"))                                      # ★ L2 정규화(권장: CIFAR 5e-4)
-    MOM   = float(os.getenv("FL_MOMENTUM","0.9"))                                           # ★
-    optimizer = optim.SGD(                                                              # ★
-            model.parameters(), lr=LR, momentum=MOM, weight_decay=WD,                       # ★
-            nesterov=(os.getenv("FL_NESTEROV","1")=="1")                                    # ★
+    WD    = float(os.getenv("FL_WEIGHT_DECAY","5e-4")) # ★ L2 정규화(권장: CIFAR 5e-4)
+    MOM   = float(os.getenv("FL_MOMENTUM","0.9"))
+    optimizer = optim.SGD(
+            model.parameters(), lr=LR, momentum=MOM, weight_decay=WD,
+            nesterov=(os.getenv("FL_NESTEROV","1")=="1")
     )         
     clip_norm = float(os.getenv("FL_CLIP_NORM","1.0"))
 
@@ -324,8 +317,6 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
             
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
-            if images.is_floating_point() and images.dtype != model_dtype:
-                images = images.to(model_dtype)
 
             if not did_sanity_log:
                 with torch.no_grad():
@@ -359,6 +350,35 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
 
             if not torch.isfinite(loss):
                 bad_skips += 1
+                try:
+                    img_m, img_s = float(images.mean().item()), float(images.std().item())
+                    img_min, img_max = float(images.min().item()), float(images.max().item())
+                except Exception:
+                    img_m = img_s = img_min = img_max = float("nan")
+
+                try:
+                    # outputs may contain NaN; use nan-aware stats
+                    out_m = float(torch.nanmean(outputs.float()).item())
+                    out_absmax = float(torch.nanmax(outputs.float().abs()).item())
+                except Exception:
+                    out_m = out_absmax = float("nan")
+
+                try:
+                    lr_now = float(optimizer.param_groups[0]["lr"])
+                except Exception:
+                    lr_now = float("nan")
+
+                try:
+                    gnorm = _global_grad_norm(model)  # may be None if no grads yet
+                except Exception:
+                    gnorm = None
+
+                logger.warning(
+                    f"SAT{sat_id}: non-finite loss detected | "
+                    f"img(mean/std/min/max)={img_m:.4g}/{img_s:.4g}/{img_min:.4g}/{img_max:.4g} "
+                    f"out(mean/|max|)={out_m:.4g}/{out_absmax:.4g} lr={lr_now:.2e} grad_norm={gnorm}"
+                )
+
                 if bad_skips % 5 == 0:
                     for g in optimizer.param_groups:
                         g['lr'] = max(g['lr'] * 0.5, 1e-6)
@@ -390,7 +410,7 @@ def do_local_training(ctx: AppState, sat_id: int, stop_event: threading.Event, g
 
         if total == 0 and scaler.is_enabled():
             logger.warning(f"SAT{sat_id}: epoch{ep+1} produced no valid steps; disabling AMP for stability.")
-            scaler = GradScaler('cuda',enabled=False)
+            scaler = GradScaler(enabled=False)
 
         avg_loss = running_loss / max(1, len(loader))
         acc = 100.0 * correct / max(1, total)
@@ -421,7 +441,7 @@ async def train_worker(ctx: AppState, gpu_id: Optional[int]):
             st.running = True
 
             def _job():
-                return do_local_training(ctx, sat_id=sat_id, stop_event=st.stop_event, gpu_id=gpu_id)
+                return local_train(ctx, sat_id=sat_id, stop_event=st.stop_event, gpu_id=gpu_id)
 
             fut = loop.run_in_executor(ctx.training_executor, _job)
             st.future = fut
