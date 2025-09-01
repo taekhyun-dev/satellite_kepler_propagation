@@ -10,7 +10,7 @@ import threading
 from ..core.logging import make_logger
 from ..core.paths import CKPT_DIR
 from ..core.gpu import build_worker_gpu_list
-from ..core.utils import get_env_int
+from ..core.utils import get_env_int, get_env_float
 from .model import new_model_skeleton
 from .metrics import log_local_metrics
 from ..dataio.registry import (
@@ -197,14 +197,14 @@ def get_eval_dataset(ctx: AppState, split: str):
 
 def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id: Optional[int] = None,
                       *, epochs=None, lr=None, batch_size=None) -> str:
-    EPOCHS = int(os.getenv("FL_EPOCHS_PER_ROUND","1")) if epochs is None else int(epochs)
-    LR     = float(os.getenv("FL_LR","1e-2"))           if lr is None else float(lr)
-    BS     = int(os.getenv("FL_BATCH_SIZE","64"))      if batch_size is None else int(batch_size)
+    EPOCHS = get_env_int("FL_EPOCHS_PER_ROUND", 1) if epochs is None else int(epochs)
+    LR     = get_env_float("FL_LR", 1e-2) if lr is None else float(lr)
+    BS     = get_env_int("FL_BATCH_SIZE", 64) if batch_size is None else int(batch_size)
     NUM_CLASSES = ctx.cfg.num_classes
 
     USE_AMP = os.getenv("FL_USE_AMP", "1") == "1"
-    MAX_BAD_SKIPS = int(os.getenv("FL_MAX_BAD_BATCH_SKIPS","20"))
-    MAX_STALENESS = int(os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS","6")))
+    MAX_BAD_SKIPS = get_env_int("FL_MAX_BAD_BATCH_SKIPS", 20)
+    MAX_STALENESS = get_env_int("MAX_STALENESS", get_env_int("FL_MAX_STALENESS", 6))
 
     device = torch.device(f"cuda:{gpu_id}") if (torch.cuda.is_available() and gpu_id is not None) else (
              torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
@@ -283,8 +283,8 @@ def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id:
                         persistent_workers=(ctx.cfg.dataloader_workers>0))
 
     criterion = nn.CrossEntropyLoss()
-    WD    = float(os.getenv("FL_WEIGHT_DECAY","5e-4")) # ★ L2 정규화(권장: CIFAR 5e-4)
-    MOM   = float(os.getenv("FL_MOMENTUM","0.9"))
+    WD    = get_env_float("FL_WEIGHT_DECAY", 5e-4)  # ★ L2 정규화(권장: CIFAR 5e-4)
+    MOM   = get_env_float("FL_MOMENTUM", 0.9)
     optimizer = optim.SGD(
             model.parameters(), lr=LR, momentum=MOM, weight_decay=WD,
             nesterov=(os.getenv("FL_NESTEROV","1")=="1")
@@ -481,7 +481,7 @@ def enqueue_training(ctx: AppState, sat_id: int):
         ctx.train_queue.put_nowait(sat_id)
         st.in_queue = True
     except asyncio.QueueFull:
-        pass
+        logger.warning(f"train queue full; drop sat{sat_id}")
 
 def maybe_reenqueue_offline(ctx: AppState, sat_id: int):
     if os.getenv("FL_OFFLINE_CONTINUE","1") != "1":
