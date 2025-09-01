@@ -13,3 +13,13 @@ python kepler_propagator.py
 ```
 
 will run a basic propagation example using PyAstronomy.
+
+## Federated Learning Settings
+
+Some simulations under `simserver/` support federated learning.  The following
+environment variables adjust optional behaviours:
+
+- `FL_FEDPROX_MU`: non-zero value enables FedProx proximal regularisation with
+  the given coefficient.
+- `FL_OFFLINE_CONTINUE`: when set to `1`, completed local trainings are
+  re-enqueued so that nodes continue learning even while offline.

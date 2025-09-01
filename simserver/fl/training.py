@@ -265,6 +265,11 @@ def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id:
     model.to(device).train()
     dataset = get_training_dataset(sat_id)
 
+    MU = float(os.getenv("FL_FEDPROX_MU", "0"))
+    global_params = None
+    if MU > 0:
+        global_params = {name: p.detach().clone().to(device) for name, p in model.named_parameters()}
+
     ENFORCE_NORM = os.getenv("FL_ENFORCE_TRAIN_NORM", "1") == "1"
     if ENFORCE_NORM:
         dataset, applied = _maybe_wrap_with_transform(dataset, _build_train_transform)
@@ -347,6 +352,12 @@ def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id:
                     loss = criterion(outputs, labels)
                 else:
                     raise
+
+            if MU > 0 and global_params is not None:
+                prox = 0.0
+                for name, param in model.named_parameters():
+                    prox += (param - global_params[name]).pow(2).sum()
+                loss = loss + (MU / 2.0) * prox
 
             if not torch.isfinite(loss):
                 bad_skips += 1
@@ -458,12 +469,7 @@ async def train_worker(ctx: AppState, gpu_id: Optional[int]):
                 ctx.train_queue.task_done()
 
                 # ★★★ OFFLINE 모드: 통신 불가해도 로컬 학습 계속 돌리기 ★★★
-                if os.getenv("FL_OFFLINE_CONTINUE","1") == "1":                     # ★
-                    try:                                                            # ★
-                        enqueue_training(ctx, sat_id)                               # ★
-                        logger.info(f"SAT{sat_id}: re-enqueued for offline-continue.")  # ★
-                    except Exception as _e:                                         # ★
-                        logger.warning(f"SAT{sat_id}: offline-continue enqueue failed: {_e}")  # ★
+                maybe_reenqueue_offline(ctx, sat_id)
     except asyncio.CancelledError:
         logger.info("[TRAIN] worker cancelled")
         raise
@@ -476,6 +482,16 @@ def enqueue_training(ctx: AppState, sat_id: int):
         st.in_queue = True
     except asyncio.QueueFull:
         pass
+
+def maybe_reenqueue_offline(ctx: AppState, sat_id: int):
+    if os.getenv("FL_OFFLINE_CONTINUE","1") != "1":
+        return
+    try:
+        enqueue_training(ctx, sat_id)
+        logger.info(f"SAT{sat_id}: re-enqueued for offline-continue.")
+    except Exception as e:
+        logger.warning(f"SAT{sat_id}: offline-continue enqueue failed: {e}")
+
 
 def on_become_visible(ctx: AppState, sat_id: int):
     st = ctx.train_states[sat_id]
