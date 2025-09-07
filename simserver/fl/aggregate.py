@@ -119,7 +119,7 @@ def staleness_factor(s: int, tau: float, mode: str) -> float:
 def alpha_for(ctx: AppState, sat_id: int, s: int, n_samples_override: Optional[int] = None) -> float:
     # --- MAX_STALENESS(환경변수) 우선 드랍 처리
     import os
-    max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 6))
+    max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 123456789))
     if max_stale_env is not None:
         try:
             max_stale_env = int(max_stale_env)
@@ -296,7 +296,7 @@ def upload_and_aggregate(
                 ctx._round_seen[this_round] = 0
 
         # --- MAX_STALENESS(환경변수) : env가 설정되면 config보다 우선 적용
-        max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 10))
+        max_stale_env = os.getenv("MAX_STALENESS", os.getenv("FL_MAX_STALENESS", 123456789))
         if max_stale_env is not None:
             try:
                 max_stale_env = int(max_stale_env)

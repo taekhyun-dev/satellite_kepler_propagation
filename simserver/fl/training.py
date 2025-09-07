@@ -24,6 +24,13 @@ logger = make_logger("simserver.train")
 
 from torch.cuda.amp import GradScaler
 
+# ---------------------------------------------------------------------------
+# 환경 변수 기반 플래그
+OFFLINE_CONTINUE = os.getenv("FL_OFFLINE_CONTINUE", "1") == "1"
+USE_FEDPROX = os.getenv("FL_USE_FEDPROX", "0") == "1"
+FEDPROX_MU = float(os.getenv("FL_FEDPROX_MU", "0.0"))
+# ---------------------------------------------------------------------------
+
 def _dataset_seems_normalized(ds, *,
                               tol_min=-0.05, tol_max=1.05) -> bool:
     """
@@ -204,7 +211,7 @@ def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id:
 
     USE_AMP = os.getenv("FL_USE_AMP", "1") == "1"
     MAX_BAD_SKIPS = get_env_int("FL_MAX_BAD_BATCH_SKIPS", 20)
-    MAX_STALENESS = get_env_int("MAX_STALENESS", get_env_int("FL_MAX_STALENESS", 6))
+    MAX_STALENESS = get_env_int("MAX_STALENESS", get_env_int("FL_MAX_STALENESS", 123456789))
 
     device = torch.device(f"cuda:{gpu_id}") if (torch.cuda.is_available() and gpu_id is not None) else (
              torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
@@ -263,12 +270,12 @@ def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id:
             logger.warning(f"SAT{sat_id}: failed to load global snapshot: {e}")
 
     model.to(device).train()
+    prox_params = (
+        [p.detach().clone() for p in model.parameters()]
+        if USE_FEDPROX and FEDPROX_MU > 0
+        else None
+    )
     dataset = get_training_dataset(sat_id)
-
-    MU = float(os.getenv("FL_FEDPROX_MU", "0"))
-    global_params = None
-    if MU > 0:
-        global_params = {name: p.detach().clone().to(device) for name, p in model.named_parameters()}
 
     ENFORCE_NORM = os.getenv("FL_ENFORCE_TRAIN_NORM", "1") == "1"
     if ENFORCE_NORM:
@@ -353,11 +360,11 @@ def local_train(ctx: AppState, sat_id: int, stop_event: threading.Event, gpu_id:
                 else:
                     raise
 
-            if MU > 0 and global_params is not None:
+            if USE_FEDPROX and FEDPROX_MU > 0 and prox_params is not None:
                 prox = 0.0
-                for name, param in model.named_parameters():
-                    prox += (param - global_params[name]).pow(2).sum()
-                loss = loss + (MU / 2.0) * prox
+                for w, w0 in zip(model.parameters(), prox_params):
+                    prox += (w - w0).pow(2).sum()
+                loss = loss + 0.5 * FEDPROX_MU * prox
 
             if not torch.isfinite(loss):
                 bad_skips += 1
